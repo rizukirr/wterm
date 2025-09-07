@@ -111,6 +111,12 @@ iwctl device list
 
 Feel free to submit issues, fork the repository, and create pull requests for any improvements.
 
+## Support
+
+If you find this tool helpful, consider buying me a coffee! ☕
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/rizukirr)
+
 ## License
 
 This project is open source. Feel free to use, modify, and distribute as needed.
