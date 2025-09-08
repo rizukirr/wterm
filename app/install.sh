@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # WiFi Terminal Tool Installer
-# Installs wifi_menu_terminal.sh as 'wterm' command
+# Installs wterm.sh as 'wterm' command
 
 # Colors for output
 RED='\033[0;31m'
@@ -66,13 +66,23 @@ echo
 # Check if running as root
 if [[ $EUID -ne 0 ]]; then
    print_status "ERROR" "This script must be run as root"
+   echo
+   print_status "INFO" "Root access is required to:"
+   echo "  • Copy wterm to /usr/local/bin/ (system-wide installation)"
+   echo "  • Install system packages (iwd, fzf) via pacman"
+   echo "  • Enable/configure system services (iwd daemon)"
+   echo
    echo "Usage: sudo ./install.sh"
    exit 1
 fi
 
-# Check if wterm.sh exists
-if [[ ! -f "wterm.sh" ]]; then
-   print_status "ERROR" "wterm.sh not found in current directory"
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+WTERM_SCRIPT="$SCRIPT_DIR/wterm.sh"
+
+# Check if wterm.sh exists in the same directory as this script
+if [[ ! -f "$WTERM_SCRIPT" ]]; then
+   print_status "ERROR" "wterm.sh not found in script directory: $SCRIPT_DIR"
    exit 1
 fi
 
@@ -86,10 +96,10 @@ fi
 
 # Copy the script to /usr/local/bin as 'wterm'
 print_status "INFO" "Installing wterm to /usr/local/bin..."
-if cp wterm.sh /usr/local/bin/wterm; then
+if cp "$WTERM_SCRIPT" /usr/local/bin/wterm; then
     INSTALLED_FILES+=("/usr/local/bin/wterm")
 else
-    print_status "ERROR" "Failed to copy file"
+    print_status "ERROR" "Failed to copy file from $WTERM_SCRIPT"
     exit 1
 fi
 
