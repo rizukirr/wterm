@@ -6,18 +6,18 @@ A lightweight terminal base WiFi management tool written in C with modern CMake 
 ![License](https://img.shields.io/badge/license-Open%20Source-green)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 
-## ✨ Features
+## Features
 
-- 🔍 **Fast Network Scanning**: Native C implementation for quick WiFi network discovery
-- 🔄 **Interactive Rescan**: Live network rescanning with smooth loading animations
-- 🎛️ **fzf Integration**: Modern terminal UI with fuzzy search and network selection
-- 🛡️ **Memory Safe**: Comprehensive bounds checking and safe string operations
-- 🧪 **Well Tested**: Complete unit and integration test suite
-- 🏗️ **Modern Build System**: CMake with professional project structure
-- 📖 **Intuitive Interface**: Easy navigation with arrow keys, search, and selection
-- 🔧 **Modular Design**: Clean separation of concerns for easy maintenance
+- **Fast Network Scanning**: Native C implementation for quick WiFi network discovery
+- **Interactive Rescan**: Live network rescanning with smooth loading animations
+- **fzf Integration**: Modern terminal UI with fuzzy search and network selection
+- **Memory Safe**: Comprehensive bounds checking and safe string operations
+- **Well Tested**: Complete unit and integration test suite
+- **Modern Build System**: CMake with professional project structure
+- **Intuitive Interface**: Easy navigation with arrow keys, search, and selection
+- **Modular Design**: Clean separation of concerns for easy maintenance
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Using the Install Script (Recommended)
 
@@ -38,7 +38,7 @@ sudo ./scripts/install.sh
 ./build/bin/wterm
 ```
 
-## 📋 Prerequisites
+## Prerequisites
 
 ### Build Dependencies
 
@@ -60,7 +60,7 @@ The install script can automatically install missing dependencies on Arch Linux:
 sudo pacman -S base-devel cmake networkmanager fzf
 ```
 
-## 🛠️ Build System
+## Build System
 
 ### Quick Build Commands
 
@@ -133,42 +133,7 @@ When you select a network:
 - **Secured networks**: Prompt for password securely
 - **Connection status**: Real-time feedback with success/error messages
 
-## 🏗️ Project Structure
-
-```
-wterm/
-├── CMakeLists.txt              # Root CMake configuration
-├── README.md                   # This file
-├── src/                        # Source code
-│   ├── main.c                  # Application entry point
-│   ├── fzf_ui.c               # Interactive fzf interface
-│   ├── core/                   # Core functionality
-│   │   ├── network_scanner.c   # WiFi scanning implementation
-│   │   ├── network_scanner.h   # Scanner API
-│   │   ├── connection.c        # Network connection management
-│   │   └── connection.h        # Connection API
-│   └── utils/                  # Utility functions
-│       ├── string_utils.c      # String manipulation
-│       └── string_utils.h      # String utilities API
-├── include/                    # Public headers
-│   └── wterm/
-│       └── common.h            # Common definitions
-├── tests/                      # Test suite
-│   ├── CMakeLists.txt         # Test configuration
-│   ├── test_utils.c           # Test framework
-│   ├── test_string_utils.c    # String utilities tests
-│   ├── test_network_scanner.c # Scanner tests
-│   └── test_integration.c     # Integration tests
-├── scripts/                   # Build and install scripts
-│   ├── build.sh              # Convenience build script
-│   └── install.sh            # System installation script
-├── docs/                      # Documentation
-│   └── API.md                # API documentation
-└── build/                     # Build output (generated)
-    └── bin/wterm             # Final executable
-```
-
-## 🧪 Testing
+## Testing
 
 ### Run All Tests
 
@@ -193,7 +158,7 @@ wterm/
 
 The integration tests specifically verify that the original "POCO F4" bug is fixed and that all network types from the original problematic output now parse correctly.
 
-## 🔧 Development
+## Development
 
 ### Code Style
 
@@ -220,7 +185,7 @@ This codebase prioritizes memory safety:
 - Input validation on all public functions
 - Sanitizer support for development builds
 
-## 📦 Installation
+## Installation
 
 ### System-wide Installation
 
@@ -242,7 +207,7 @@ sudo cmake --install build/
 ls build/*.tar.gz build/*.deb
 ```
 
-## 🆚 Comparison with v1
+## Comparison with v1
 
 | Feature               | v1 (Shell)                  | v2 (C)                      |
 | --------------------- | --------------------------- | --------------------------- |
@@ -257,7 +222,7 @@ ls build/*.tar.gz build/*.deb
 | **Bug Handling**      | Open network bug present    | Open network bug fixed      |
 | **Maintainability**   | Script-based                | Modular C architecture      |
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -265,13 +230,12 @@ ls build/*.tar.gz build/*.deb
 4. Ensure all tests pass: `./scripts/build.sh all`
 5. Submit a pull request
 
-## 📄 License
+## License
 
 This project is open source. Feel free to use, modify, and distribute.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Original wterm shell implementation for inspiration
 - NetworkManager project for the reliable `nmcli` interface
 - The bug report that led to this complete rewrite and improvement
-
