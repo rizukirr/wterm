@@ -100,7 +100,7 @@ cmake --build . --parallel $(nproc)
 ctest --output-on-failure
 ```
 
-## 📱 Usage
+## Usage
 
 ### Interactive Mode (Default)
 
