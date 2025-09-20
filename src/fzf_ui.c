@@ -18,10 +18,7 @@ bool fzf_is_available(void) {
     return (result == 0);
 }
 
-bool fzf_select_network(const network_list_t* networks, char* selected_ssid, size_t buffer_size) {
-    // Use the proper implementation
-    return fzf_select_network_proper(networks, selected_ssid, buffer_size);
-}
+// Removed redundant wrapper function - use fzf_select_network_proper directly
 
 bool fzf_get_password(const char* ssid, char* password_out, size_t buffer_size) {
     if (!ssid || !password_out || buffer_size == 0) {

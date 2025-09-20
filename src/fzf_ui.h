@@ -10,14 +10,7 @@
 #include "core/connection.h"
 #include <stdbool.h>
 
-/**
- * @brief Show network selection using fzf
- * @param networks List of available networks
- * @param selected_ssid Output buffer for selected SSID
- * @param buffer_size Size of output buffer
- * @return bool true if user selected a network, false if cancelled
- */
-bool fzf_select_network(const network_list_t* networks, char* selected_ssid, size_t buffer_size);
+// Removed redundant fzf_select_network function - use fzf_select_network_proper directly
 
 /**
  * @brief Get password input for secured network
@@ -41,7 +34,7 @@ void fzf_show_message(const char* message);
 bool fzf_is_available(void);
 
 /**
- * @brief Alternative implementation that properly pipes data to fzf
+ * @brief Show network selection using fzf with rescan option
  * @param networks List of available networks
  * @param selected_ssid Output buffer for selected SSID
  * @param buffer_size Size of output buffer
