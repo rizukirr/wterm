@@ -16,7 +16,6 @@ A lightweight terminal base WiFi management tool written in C with modern CMake 
 - 🏗️ **Modern Build System**: CMake with professional project structure
 - 📖 **Intuitive Interface**: Easy navigation with arrow keys, search, and selection
 - 🔧 **Modular Design**: Clean separation of concerns for easy maintenance
-- 🐛 **Bug Fixed**: Resolves original issue with open networks (like "POCO F4") not appearing
 
 ## 🚀 Quick Start
 
