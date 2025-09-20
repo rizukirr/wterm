@@ -1,1 +1,75 @@
+# Build directories
+build/
+bin/
+obj/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CPackConfig.cmake
+CPackSourceConfig.cmake
+CTestTestfile.cmake
+
+# Compiled binaries
+*.exe
+*.out
+*.so
+*.a
+*.dylib
+
+# Debug and profiling files
+*.dSYM/
+*.gdb_history
+*.gdb_index
+
+# Core dumps
+core
+core.*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test output
+Testing/
+*.gcda
+*.gcno
+*.gcov
+*.profdata
+
+# Package files
+*.tar.gz
+*.zip
+*.deb
+*.rpm
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+
+# Log files
+*.log
+
+# Coverage reports
+coverage/
+htmlcov/
+
+# Static analysis
+.clang-tidy
+.clang-format
+
+# Documentation build
+docs/html/
+docs/latex/
+
+# Secrets
 .secret
+.claude/
+CLAUDE.md
