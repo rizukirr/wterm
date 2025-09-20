@@ -168,25 +168,6 @@ wterm/
     └── bin/wterm             # Final executable
 ```
 
-## 🐛 Bug Fixes
-
-### Original Issue Resolution
-
-This version specifically fixes the issue where open WiFi networks (networks with empty security fields) were not being displayed. The problem affected networks like "MYWIFI" that appeared in `nmcli` output as:
-
-```
-MYWIFI::89
-```
-
-**Root Cause**: The original parsing logic required all three fields (SSID, Security, Signal) to be non-empty, but open networks have empty security fields.
-
-**Solution**: Enhanced parsing logic that:
-
-- Handles empty security fields gracefully
-- Labels open networks as "Open" for clarity
-- Uses length-based parsing instead of `strtok()` for better safety
-- Includes comprehensive bounds checking
-
 ## 🧪 Testing
 
 ### Run All Tests
