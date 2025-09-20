@@ -136,7 +136,7 @@ When you select a network:
 ## 🏗️ Project Structure
 
 ```
-wterm/v2/
+wterm/
 ├── CMakeLists.txt              # Root CMake configuration
 ├── README.md                   # This file
 ├── src/                        # Source code
