@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 bool fzf_is_available(void) {
@@ -89,10 +90,26 @@ bool fzf_select_network_proper(const network_list_t *networks,
   }
 
   // Create temporary file with network list
-  char temp_file[] = "/tmp/wterm_networks_XXXXXX";
+  // Use secure temporary directory if available
+  const char *tmpdir = getenv("TMPDIR");
+  if (!tmpdir || strlen(tmpdir) == 0) {
+    tmpdir = "/tmp";
+  }
+
+  char temp_file[256];
+  snprintf(temp_file, sizeof(temp_file), "%s/wterm_networks_XXXXXX", tmpdir);
+
   int fd = mkstemp(temp_file);
   if (fd == -1) {
     perror("Failed to create temporary file");
+    return false;
+  }
+
+  // Set restrictive permissions (owner read/write only)
+  if (fchmod(fd, 0600) != 0) {
+    perror("Failed to set file permissions");
+    close(fd);
+    unlink(temp_file);
     return false;
   }
 
@@ -167,9 +184,24 @@ bool fzf_select_wifi_interface(char *interface_out, size_t buffer_size) {
 
   // This would use the backend function, but for now we'll use a simple
   // approach Get interfaces using nmcli
-  char temp_file[] = "/tmp/wterm_interfaces_XXXXXX";
+  const char *tmpdir = getenv("TMPDIR");
+  if (!tmpdir || strlen(tmpdir) == 0) {
+    tmpdir = "/tmp";
+  }
+
+  char temp_file[256];
+  snprintf(temp_file, sizeof(temp_file), "%s/wterm_interfaces_XXXXXX", tmpdir);
+
   int fd = mkstemp(temp_file);
   if (fd == -1) {
+    hotspot_manager_cleanup();
+    return false;
+  }
+
+  // Set restrictive permissions
+  if (fchmod(fd, 0600) != 0) {
+    close(fd);
+    unlink(temp_file);
     hotspot_manager_cleanup();
     return false;
   }
@@ -245,9 +277,23 @@ bool fzf_select_internet_source(char *interface_out, size_t buffer_size) {
   }
 
   // Create temporary file with internet source options
-  char temp_file[] = "/tmp/wterm_inet_sources_XXXXXX";
+  const char *tmpdir = getenv("TMPDIR");
+  if (!tmpdir || strlen(tmpdir) == 0) {
+    tmpdir = "/tmp";
+  }
+
+  char temp_file[256];
+  snprintf(temp_file, sizeof(temp_file), "%s/wterm_inet_sources_XXXXXX", tmpdir);
+
   int fd = mkstemp(temp_file);
   if (fd == -1) {
+    return false;
+  }
+
+  // Set restrictive permissions
+  if (fchmod(fd, 0600) != 0) {
+    close(fd);
+    unlink(temp_file);
     return false;
   }
 
@@ -421,9 +467,23 @@ bool fzf_get_hotspot_config(hotspot_config_t *config) {
   }
 
   // Get security type selection
-  char temp_file[] = "/tmp/wterm_security_XXXXXX";
+  const char *tmpdir = getenv("TMPDIR");
+  if (!tmpdir || strlen(tmpdir) == 0) {
+    tmpdir = "/tmp";
+  }
+
+  char temp_file[256];
+  snprintf(temp_file, sizeof(temp_file), "%s/wterm_security_XXXXXX", tmpdir);
+
   int fd = mkstemp(temp_file);
   if (fd == -1) {
+    return false;
+  }
+
+  // Set restrictive permissions
+  if (fchmod(fd, 0600) != 0) {
+    close(fd);
+    unlink(temp_file);
     return false;
   }
 
@@ -501,9 +561,23 @@ bool fzf_confirm_hotspot_config(const hotspot_config_t *config) {
     printf("Password: [Hidden]\n");
   }
 
-  char temp_file[] = "/tmp/wterm_confirm_XXXXXX";
+  const char *tmpdir = getenv("TMPDIR");
+  if (!tmpdir || strlen(tmpdir) == 0) {
+    tmpdir = "/tmp";
+  }
+
+  char temp_file[256];
+  snprintf(temp_file, sizeof(temp_file), "%s/wterm_confirm_XXXXXX", tmpdir);
+
   int fd = mkstemp(temp_file);
   if (fd == -1) {
+    return false;
+  }
+
+  // Set restrictive permissions
+  if (fchmod(fd, 0600) != 0) {
+    close(fd);
+    unlink(temp_file);
     return false;
   }
 

@@ -48,6 +48,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 # Source files for string utilities library
 set(STRING_UTILS_SOURCES
     src/utils/string_utils.c
+    src/utils/input_sanitizer.c
 )
 
 # Source files for network scanner library

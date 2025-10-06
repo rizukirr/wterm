@@ -47,8 +47,19 @@ add_test(NAME integration_test
          COMMAND test_integration
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
+# Security tests
+add_executable(test_security test_security.c)
+target_link_libraries(test_security
+    wterm_string_utils
+    test_utils
+)
+
+add_test(NAME security_test
+         COMMAND test_security
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
 # Set test properties
-set_tests_properties(string_utils_test network_scanner_test integration_test
+set_tests_properties(string_utils_test network_scanner_test integration_test security_test
     PROPERTIES
         TIMEOUT 30
         LABELS "unit"
