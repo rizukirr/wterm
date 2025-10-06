@@ -6,13 +6,12 @@
 
 A lightweight terminal base WiFi management tool written in C with modern CMake build system. This is a complete rewrite of the original shell-based wterm in v1.0.0, offering improved performance, memory safety, and maintainability.
 
-| NOTE: currently just support for Arch Linux (btw) only
-
 ## Features
 
 - **Fast Network Scanning**: Native C implementation for quick WiFi network discovery
 - **Interactive Rescan**: Live network rescanning with smooth loading animations
 - **fzf Integration**: Modern terminal UI with fuzzy search and network selection
+- **WiFi Hotspot Management**: Create and manage WiFi hotspots (Access Points) using NetworkManager
 - **Memory Safe**: Comprehensive bounds checking and safe string operations
 - **Well Tested**: Complete unit and integration test suite
 - **Modern Build System**: CMake with professional project structure
@@ -21,16 +20,51 @@ A lightweight terminal base WiFi management tool written in C with modern CMake 
 
 ## Quick Start
 
-### Using the Install Script (Recommended)
+### Option 1: Pre-built Binary (Fastest)
+
+Download the latest release binary from [GitHub Releases](https://github.com/your-repo/wterm/releases):
+
+```bash
+# Download the binary (replace VERSION with actual version)
+wget https://github.com/your-repo/wterm/releases/download/vVERSION/wterm-x86_64-linux
+
+# Install runtime dependencies based on your distro
+# Arch Linux
+sudo pacman -S networkmanager fzf
+
+# Ubuntu/Debian
+sudo apt update && sudo apt install network-manager fzf
+
+# Fedora
+sudo dnf install NetworkManager fzf
+
+# openSUSE
+sudo zypper install NetworkManager fzf
+
+# Make executable and install
+chmod +x wterm-x86_64-linux
+sudo mv wterm-x86_64-linux /usr/local/bin/wterm
+
+# Verify installation
+wterm --version
+```
+
+**Requirements:**
+- Linux x86_64 with glibc 2.31+ (most modern distros from 2020+)
+- NetworkManager and fzf installed
+
+### Option 2: Install Script from Source
 
 ```bash
 # Clone and install in one step
 git clone <repository-url> wterm
-cd wterm/v2
+cd wterm
 sudo ./scripts/install.sh
 ```
 
-### Manual Build
+The install script automatically handles dependencies on Arch Linux.
+
+### Option 3: Manual Build from Source
 
 ```bash
 # Build release version
@@ -52,7 +86,7 @@ sudo ./scripts/install.sh
 
 - **NetworkManager** (`nmcli` command)
 - **fzf** (for interactive network selection)
-- **Linux** system (tested on Arch Linux)
+- **Linux** system with glibc 2.31+ (works on most modern distros: Arch, Ubuntu 20.04+, Fedora, Debian, openSUSE)
 
 ### Auto-Installation
 
@@ -134,6 +168,60 @@ When you select a network:
 - **Open networks**: Connect immediately
 - **Secured networks**: Prompt for password securely
 - **Connection status**: Real-time feedback with success/error messages
+
+## Hotspot Management
+
+wterm includes a NetworkManager-based hotspot management tool for creating and managing WiFi Access Points.
+
+### Quick Hotspot Commands
+
+```bash
+# Create and start a secured hotspot
+sudo ./scripts/hotspot_nm.sh create MyHotspot mypassword123
+
+# Create an open hotspot
+sudo ./scripts/hotspot_nm.sh create PublicWiFi --open
+
+# Create with custom settings
+sudo ./scripts/hotspot_nm.sh create MyHotspot password123 --band a --interface wlan0
+
+# Manage hotspots
+sudo ./scripts/hotspot_nm.sh start MyHotspot
+sudo ./scripts/hotspot_nm.sh stop MyHotspot
+sudo ./scripts/hotspot_nm.sh restart MyHotspot
+sudo ./scripts/hotspot_nm.sh delete MyHotspot
+
+# List and check status
+sudo ./scripts/hotspot_nm.sh list
+sudo ./scripts/hotspot_nm.sh status [MyHotspot]
+```
+
+### Hotspot Options
+
+- `--interface <iface>` - WiFi interface (default: wlan0)
+- `--band <bg|a>` - Frequency band: bg=2.4GHz, a=5GHz (default: bg)
+- `--no-start` - Create configuration without starting
+- `--open` - Create open hotspot (no password)
+- `--gateway <ip/prefix>` - Gateway IP (default: 192.168.12.1/24)
+
+### Important Limitations
+
+**WiFi-to-WiFi Sharing Not Supported**
+
+Due to hardware limitations, wterm cannot share a WiFi connection through a WiFi hotspot on the same adapter:
+
+- **Single Radio Limitation**: Most WiFi adapters have a single radio that cannot operate in both client mode (connected to WiFi) and AP mode (hotspot) simultaneously
+- **Current Behavior**: Starting a hotspot will automatically disconnect any active WiFi connection on the same interface
+- **Supported Configuration**: Ethernet-to-WiFi sharing (wired internet connection shared via WiFi hotspot)
+
+**To enable WiFi-to-WiFi sharing, you would need:**
+- Two separate WiFi adapters (one for client mode, one for AP mode)
+- Manual configuration to bridge traffic between the two interfaces
+
+**Other Notes:**
+- Requires root/sudo privileges
+- Hotspot configurations are persistent across reboots
+- NetworkManager automatically handles WiFi disconnection when starting hotspot
 
 ## Testing
 
