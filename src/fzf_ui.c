@@ -6,6 +6,7 @@
 #define _GNU_SOURCE
 #include "fzf_ui.h"
 #include "utils/string_utils.h"
+#include "utils/safe_exec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,8 +16,7 @@
 
 bool fzf_is_available(void) {
   // Check if fzf command is available
-  int result = system("command -v fzf >/dev/null 2>&1");
-  return (result == 0);
+  return safe_command_exists("fzf");
 }
 
 // Removed redundant wrapper function - use fzf_select_network_proper directly
@@ -223,8 +223,8 @@ bool fzf_select_wifi_interface(char *interface_out, size_t buffer_size) {
       buffer[strcspn(buffer, "\n")] = '\0';
 
       // Parse: DEVICE:TYPE
-      char *device_field = strtok(buffer, ":");
-      char *type_field = strtok(NULL, ":");
+      const char *device_field = strtok(buffer, ":");
+      const char *type_field = strtok(NULL, ":");
 
       if (device_field && type_field && strcmp(type_field, "wifi") == 0) {
         // Check if interface supports AP mode (simplified check)
@@ -316,9 +316,9 @@ bool fzf_select_internet_source(char *interface_out, size_t buffer_size) {
       buffer[strcspn(buffer, "\n")] = '\0';
 
       // Parse: NAME:TYPE:STATE
-      char *name_field = strtok(buffer, ":");
-      char *type_field = strtok(NULL, ":");
-      char *state_field = strtok(NULL, ":");
+      const char *name_field = strtok(buffer, ":");
+      const char *type_field = strtok(NULL, ":");
+      const char *state_field = strtok(NULL, ":");
 
       if (name_field && type_field && state_field &&
           strcmp(state_field, "activated") == 0) {
@@ -337,9 +337,9 @@ bool fzf_select_internet_source(char *interface_out, size_t buffer_size) {
       buffer[strcspn(buffer, "\n")] = '\0';
 
       // Parse: DEVICE:TYPE:STATE
-      char *device_field = strtok(buffer, ":");
-      char *type_field = strtok(NULL, ":");
-      char *state_field = strtok(NULL, ":");
+      const char *device_field = strtok(buffer, ":");
+      const char *type_field = strtok(NULL, ":");
+      const char *state_field = strtok(NULL, ":");
 
       if (device_field && type_field && state_field &&
           strcmp(type_field, "ethernet") == 0 &&

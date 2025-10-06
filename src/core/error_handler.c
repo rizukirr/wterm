@@ -6,12 +6,14 @@
 #define _POSIX_C_SOURCE 200809L
 #include "error_handler.h"
 #include "../utils/string_utils.h"
+#include "../utils/safe_exec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <ctype.h>
+#include <fcntl.h>
 
 connection_error_t parse_nmcli_error(const char* error_output) {
     if (!error_output) {
@@ -165,14 +167,53 @@ bool is_wifi_enabled(void) {
 }
 
 bool is_networkmanager_running(void) {
-    int result = system("systemctl is-active --quiet NetworkManager");
-    return (result == 0);
+    char* const args[] = {
+        "systemctl",
+        "is-active",
+        "--quiet",
+        "NetworkManager",
+        NULL
+    };
+    return safe_exec_check("systemctl", args);
 }
 
 bool test_internet_connectivity(void) {
     // Test with a quick ping to Google DNS
-    int result = system("ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1");
-    return (result == 0);
+    char* const args[] = {
+        "ping",
+        "-c",
+        "1",
+        "-W",
+        "2",
+        "8.8.8.8",
+        NULL
+    };
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        return false;
+    }
+
+    if (pid == 0) {
+        // Child process - redirect output to /dev/null
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+
+        execvp("ping", args);
+        _exit(127);
+    }
+
+    // Parent process
+    int status;
+    if (waitpid(pid, &status, 0) < 0) {
+        return false;
+    }
+
+    return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
 bool auto_enable_wifi(void) {
@@ -180,8 +221,14 @@ bool auto_enable_wifi(void) {
         return true; // Already enabled
     }
 
-    int result = system("nmcli radio wifi on");
-    return (result == 0);
+    char* const args[] = {
+        "nmcli",
+        "radio",
+        "wifi",
+        "on",
+        NULL
+    };
+    return safe_exec_check("nmcli", args);
 }
 
 const char* get_error_message(connection_error_t error) {

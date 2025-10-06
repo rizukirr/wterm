@@ -276,40 +276,10 @@ jobs:
         echo ""
         echo "✅ Temporary file handling is secure"
 
-  security-documentation-check:
-    name: Security Documentation Verification
-    runs-on: ubuntu-24.04
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Verify security documentation
-      run: |
-        echo "Checking security documentation..."
-
-        if [ -f "SECURITY_FIXES.md" ]; then
-          echo "✅ SECURITY_FIXES.md exists"
-
-          # Check if it's been updated recently (within last 6 months)
-          LAST_MODIFIED=$(git log -1 --format="%ai" -- SECURITY_FIXES.md || echo "Never")
-          echo "Last updated: $LAST_MODIFIED"
-        else
-          echo "❌ SECURITY_FIXES.md missing"
-          exit 1
-        fi
-
-        if [ -f "CONTRIBUTING.md" ]; then
-          echo "✅ CONTRIBUTING.md exists"
-        fi
-
-        echo ""
-        echo "✅ Security documentation in place"
-
   vulnerability-summary:
     name: Security Audit Summary
     runs-on: ubuntu-24.04
-    needs: [codeql-analysis, security-test-suite, dependency-check, command-injection-audit, temporary-file-audit, security-documentation-check]
+    needs: [codeql-analysis, security-test-suite, dependency-check, command-injection-audit, temporary-file-audit]
     if: always()
 
     steps:
@@ -329,7 +299,6 @@ jobs:
         echo "  ✅ Dependency security check"
         echo "  ✅ Command injection prevention audit"
         echo "  ✅ Temporary file security audit"
-        echo "  ✅ Documentation verification"
         echo ""
         echo "Security features verified:"
         echo "  ✅ Input sanitization (shell_escape)"

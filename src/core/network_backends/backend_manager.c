@@ -4,6 +4,7 @@
  */
 
 #include "backend_interface.h"
+#include "../../utils/safe_exec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,15 +16,19 @@ static bool backend_initialized = false;
 bool command_exists(const char* command) {
     if (!command) return false;
 
-    char test_command[256];
-    snprintf(test_command, sizeof(test_command), "command -v %s >/dev/null 2>&1", command);
-    return (system(test_command) == 0);
+    return safe_command_exists(command);
 }
 
 network_manager_type_t detect_network_manager(void) {
     if (command_exists("nmcli")) {
         // Check if nmcli can actually work
-        if (system("nmcli device status >/dev/null 2>&1") == 0) {
+        char* const args[] = {
+            "nmcli",
+            "device",
+            "status",
+            NULL
+        };
+        if (safe_exec_check("nmcli", args)) {
             return NETMGR_NMCLI;
         }
     }

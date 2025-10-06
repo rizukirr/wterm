@@ -8,6 +8,7 @@
 #include "error_handler.h"
 #include "../utils/string_utils.h"
 #include "../utils/input_sanitizer.h"
+#include "../utils/safe_exec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -179,11 +180,16 @@ wterm_result_t disconnect_current_network(void) {
         return WTERM_SUCCESS; // Already disconnected
     }
 
-    char command[256];
-    snprintf(command, sizeof(command), "nmcli device wifi disconnect");
+    char* const args[] = {
+        "nmcli",
+        "device",
+        "wifi",
+        "disconnect",
+        NULL
+    };
 
-    int result = system(command);
-    return (result == 0) ? WTERM_SUCCESS : WTERM_ERROR_NETWORK;
+    bool result = safe_exec_check("nmcli", args);
+    return result ? WTERM_SUCCESS : WTERM_ERROR_NETWORK;
 }
 
 bool network_requires_password(const char* security) {
