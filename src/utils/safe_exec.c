@@ -56,10 +56,9 @@ bool safe_command_exists(const char* command) {
         return false;
     }
 
-    // Use command -v to check if command exists
+    // Use 'which' to check if command exists (which is an actual executable)
     char* const args[] = {
-        "command",
-        "-v",
+        "which",
         (char*)command,
         NULL
     };
@@ -79,7 +78,7 @@ bool safe_command_exists(const char* command) {
             close(devnull);
         }
 
-        execvp("command", args);
+        execvp("which", args);
         _exit(127);
     }
 
