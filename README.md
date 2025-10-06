@@ -2,7 +2,7 @@
 ![License](https://img.shields.io/badge/license-Open%20Source-green)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 
-# wterm v2 - WiFi Terminal Management Tool
+# wterm v2 - WiFi TUI Management Tool
 
 A lightweight terminal base WiFi management tool written in C with modern CMake build system. This is a complete rewrite of the original shell-based wterm in v1.0.0, offering improved performance, memory safety, and maintainability.
 
