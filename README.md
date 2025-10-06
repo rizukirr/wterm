@@ -8,8 +8,8 @@ A lightweight terminal base WiFi management tool written in C with modern CMake 
 
 ## Screenshot
 
-[Menu](./assets/wterm-menu.png)
-[Hotspot Menu](./assets/wterm-menu.png)
+![Menu](./assets/wterm-menu.png)
+![Hotspot Menu](./assets/wterm-menu.png)
 
 ## Features
 
