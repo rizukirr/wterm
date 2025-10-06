@@ -6,6 +6,11 @@
 
 A lightweight terminal base WiFi management tool written in C with modern CMake build system. This is a complete rewrite of the original shell-based wterm in v1.0.0, offering improved performance, memory safety, and maintainability.
 
+## Screenshot
+
+[Menu](./assets/wterm-menu.png)
+[Hotspot Menu](./assets/wterm-menu.png)
+
 ## Features
 
 - **Fast Network Scanning**: Native C implementation for quick WiFi network discovery
@@ -50,6 +55,7 @@ wterm --version
 ```
 
 **Requirements:**
+
 - Linux x86_64 with glibc 2.31+ (most modern distros from 2020+)
 - NetworkManager and fzf installed
 
@@ -215,10 +221,12 @@ Due to hardware limitations, wterm cannot share a WiFi connection through a WiFi
 - **Supported Configuration**: Ethernet-to-WiFi sharing (wired internet connection shared via WiFi hotspot)
 
 **To enable WiFi-to-WiFi sharing, you would need:**
+
 - Two separate WiFi adapters (one for client mode, one for AP mode)
 - Manual configuration to bridge traffic between the two interfaces
 
 **Other Notes:**
+
 - Requires root/sudo privileges
 - Hotspot configurations are persistent across reboots
 - NetworkManager automatically handles WiFi disconnection when starting hotspot
