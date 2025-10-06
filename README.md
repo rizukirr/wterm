@@ -1,4 +1,4 @@
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
+![Version](https://img.shields.io/badge/version-3.0.0-blue)
 ![License](https://img.shields.io/badge/license-Open%20Source-green)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 
