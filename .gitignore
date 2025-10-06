@@ -73,3 +73,9 @@ docs/latex/
 .secret
 .claude/
 CLAUDE.md
+linux-wifi-hotspot/
+
+# Hotspot temporary files
+/tmp/wterm_hotspots/
+/tmp/wterm_hotspot_runtime/
+/tmp/create_ap.*/

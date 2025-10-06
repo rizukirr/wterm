@@ -61,6 +61,8 @@ set(NETWORK_SCANNER_SOURCES
 set(CONNECTION_SOURCES
     src/core/connection.c
     src/core/error_handler.c
+    src/core/hotspot_manager.c
+    src/core/hotspot_ui.c
 )
 
 # Source files for fzf interface
