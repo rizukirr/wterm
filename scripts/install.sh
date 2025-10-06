@@ -110,76 +110,76 @@ check_build_dependencies() {
 
 # Check for network manager conflicts
 check_network_manager_conflicts() {
-    local active_managers=()
-    local conflicts_found=false
-
     print_status "INFO" "Checking current network manager configuration..."
 
-    # Detect active network managers
-    if systemctl is-active --quiet systemd-networkd; then
-        active_managers+=("systemd-networkd")
-        conflicts_found=true
-    fi
-
+    # Check if NetworkManager is already active
     if systemctl is-active --quiet NetworkManager; then
-        active_managers+=("NetworkManager")
+        print_status "OK" "NetworkManager is already active - no conflicts"
+        return 0  # All good, continue installation
     fi
 
-    if systemctl is-active --quiet wicd; then
-        active_managers+=("wicd")
-        conflicts_found=true
-    fi
+    # NetworkManager is not active - check for known conflicting managers
+    print_status "INFO" "NetworkManager is not active, checking for conflicts..."
 
-    if systemctl is-active --quiet connman; then
-        active_managers+=("connman")
-        conflicts_found=true
-    fi
+    local detected_manager=""
+    local known_managers=("systemd-networkd" "wicd" "connman" "iwd" "netctl" "dhcpcd")
 
-    # Show current state
-    if [[ ${#active_managers[@]} -gt 0 ]]; then
-        print_status "INFO" "Active network managers: ${active_managers[*]}"
-    fi
-
-    # Handle systemd-networkd conflict
-    if [[ $conflicts_found == true ]]; then
-        echo
-        print_status "WARN" "Network manager conflict detected!"
-        print_status "INFO" "wterm requires NetworkManager as the main network daemon"
-
-        if systemctl is-active --quiet systemd-networkd; then
-            print_status "INFO" "systemd-networkd is currently managing your network"
-            print_status "INFO" "This conflicts with NetworkManager"
+    # Detect which known manager is active
+    for manager in "${known_managers[@]}"; do
+        if systemctl is-active --quiet "$manager"; then
+            detected_manager="$manager"
+            break
         fi
+    done
 
+    # Handle detected manager
+    if [[ -n "$detected_manager" ]]; then
         echo
-        print_status "INFO" "To use wterm, we need to:"
-        echo "  1. Disable conflicting network managers (systemd-networkd, etc.)"
+        print_status "WARN" "Detected active network manager: $detected_manager"
+        print_status "INFO" "wterm requires NetworkManager to function"
+        echo
+        print_status "INFO" "Actions needed:"
+        echo "  1. Disable $detected_manager"
         echo "  2. Install and enable NetworkManager"
         echo "  3. Install fzf for interactive network selection"
         echo
         print_status "WARN" "This will change your system's network management!"
-        print_status "INFO" "You can restore the previous setup using uninstall.sh later"
         echo
-        read -p "Do you want to proceed with switching to NetworkManager? [y/N]: " -r
+        read -p "Do you want to proceed? [y/N]: " -r
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            return 0  # Proceed with changes
+            export DETECTED_MANAGER="$detected_manager"  # Pass to switch function
+            return 0  # Proceed with switching
         else
             print_status "ERROR" "Cannot install wterm without NetworkManager"
             print_status "INFO" "Installation cancelled by user"
             exit 1
         fi
-    elif systemctl is-active --quiet NetworkManager; then
-        print_status "OK" "NetworkManager is already active - no conflicts detected"
-        return 0
     else
-        print_status "INFO" "No active network managers detected - will install NetworkManager"
-        return 0
+        # Unknown or no network manager detected
+        echo
+        print_status "WARN" "No known network manager detected, but NetworkManager is not active"
+        print_status "INFO" "You may have an unknown network manager or custom network setup"
+        echo
+        print_status "ERROR" "Please manually disable your current network manager and enable NetworkManager:"
+        echo "  1. Disable your current network manager"
+        echo "  2. Install NetworkManager: sudo pacman -S networkmanager"
+        echo "  3. Enable NetworkManager: sudo systemctl enable --now NetworkManager"
+        echo "  4. Re-run this install script"
+        echo
+        exit 1
     fi
 }
 
 # Switch to NetworkManager safely
 switch_to_networkmanager() {
-    print_status "INFO" "Switching to NetworkManager as primary network manager..."
+    local manager_to_disable="${DETECTED_MANAGER}"
+
+    if [[ -z "$manager_to_disable" ]]; then
+        print_status "ERROR" "No network manager specified to disable"
+        return 1
+    fi
+
+    print_status "INFO" "Switching from $manager_to_disable to NetworkManager..."
 
     # Create state directory for tracking changes
     sudo mkdir -p /etc/wterm
@@ -188,8 +188,10 @@ switch_to_networkmanager() {
     local state_file="/etc/wterm/previous_state.txt"
     sudo rm -f "$state_file"
 
-    if systemctl is-active --quiet systemd-networkd; then
-        echo "previous_netmgr=systemd-networkd" | sudo tee -a "$state_file" >/dev/null
+    echo "previous_netmgr=$manager_to_disable" | sudo tee -a "$state_file" >/dev/null
+
+    # For systemd-networkd, also track systemd-resolved
+    if [[ "$manager_to_disable" == "systemd-networkd" ]]; then
         echo "systemd_resolved_was_active=$(systemctl is-active --quiet systemd-resolved && echo 'true' || echo 'false')" | sudo tee -a "$state_file" >/dev/null
     fi
 
@@ -197,25 +199,17 @@ switch_to_networkmanager() {
     echo "install_date=$(date -Iseconds)" | sudo tee -a "$state_file" >/dev/null
     echo "installed_by_wterm=true" | sudo tee -a "$state_file" >/dev/null
 
-    # Disable conflicting services
-    if systemctl is-active --quiet systemd-networkd; then
-        print_status "INFO" "Disabling systemd-networkd..."
-        sudo systemctl disable --now systemd-networkd
+    # Disable the detected network manager
+    print_status "INFO" "Disabling $manager_to_disable..."
+    if ! sudo systemctl disable --now "$manager_to_disable"; then
+        print_status "ERROR" "Failed to disable $manager_to_disable"
+        return 1
     fi
 
-    if systemctl is-active --quiet systemd-resolved; then
+    # Special handling for systemd-networkd (also disable systemd-resolved)
+    if [[ "$manager_to_disable" == "systemd-networkd" ]] && systemctl is-active --quiet systemd-resolved; then
         print_status "INFO" "Disabling systemd-resolved..."
         sudo systemctl disable --now systemd-resolved
-    fi
-
-    if systemctl is-active --quiet wicd; then
-        print_status "INFO" "Disabling wicd..."
-        sudo systemctl disable --now wicd
-    fi
-
-    if systemctl is-active --quiet connman; then
-        print_status "INFO" "Disabling connman..."
-        sudo systemctl disable --now connman
     fi
 
     # Install NetworkManager and fzf
@@ -397,13 +391,14 @@ main() {
     # Check for network manager conflicts first
     check_network_manager_conflicts
 
-    # If conflicts were detected and user agreed, switch to NetworkManager
-    if [[ $? -eq 0 ]] && ! systemctl is-active --quiet NetworkManager; then
+    # If DETECTED_MANAGER is set, user agreed to switch
+    if [[ -n "${DETECTED_MANAGER:-}" ]]; then
         switch_to_networkmanager
         if [[ $? -ne 0 ]]; then
             print_status "ERROR" "Failed to switch to NetworkManager"
             exit 1
         fi
+        echo
     fi
 
     # Verify NetworkManager is working

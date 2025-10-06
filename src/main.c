@@ -5,9 +5,9 @@
 
 #include "../include/wterm/common.h"
 #include "core/connection.h"
-#include "core/network_scanner.h"
 #include "core/hotspot_manager.h"
 #include "core/hotspot_ui.h"
+#include "core/network_scanner.h"
 #include "fzf_ui.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -37,9 +37,12 @@ static void print_usage(const char *program_name) {
   printf("  Type           Search networks\n");
   printf("  q/Esc          Quit\n\n");
   printf("Examples:\n");
-  printf("  %s                           # Show network selection interface\n", program_name);
-  printf("  %s hotspot create            # Create new hotspot interactively\n", program_name);
-  printf("  %s hotspot start MyHotspot   # Start saved hotspot\n", program_name);
+  printf("  %s                           # Show network selection interface\n",
+         program_name);
+  printf("  %s hotspot create            # Create new hotspot interactively\n",
+         program_name);
+  printf("  %s hotspot start MyHotspot   # Start saved hotspot\n",
+         program_name);
   printf("  %s hotspot list              # List all hotspots\n", program_name);
 }
 
@@ -191,14 +194,14 @@ static wterm_result_t handle_hotspot_list(void) {
     printf("Use 'wterm hotspot create' to create a new hotspot.\n");
   } else {
     printf("Hotspot Configurations:\n");
-    printf("%-20s %-20s %-10s %-10s\n", "Name", "SSID", "Interface", "Security");
-    printf("%-20s %-20s %-10s %-10s\n", "----", "----", "---------", "--------");
+    printf("%-20s %-20s %-10s %-10s\n", "Name", "SSID", "Interface",
+           "Security");
+    printf("%-20s %-20s %-10s %-10s\n", "----", "----", "---------",
+           "--------");
 
     for (int i = 0; i < hotspot_list.count; i++) {
       const hotspot_config_t *config = &hotspot_list.hotspots[i];
-      printf("%-20s %-20s %-10s %-10s\n",
-             config->name,
-             config->ssid,
+      printf("%-20s %-20s %-10s %-10s\n", config->name, config->ssid,
              config->wifi_interface,
              hotspot_security_type_to_string(config->security_type));
     }
@@ -275,25 +278,26 @@ static wterm_result_t handle_hotspot_status(const char *hotspot_name) {
       printf("Hotspot: %s\n", hotspot_name);
       printf("State: ");
       switch (status.state) {
-        case HOTSPOT_STATE_ACTIVE:
-          printf("Active ✓\n");
-          break;
-        case HOTSPOT_STATE_STARTING:
-          printf("Starting...\n");
-          break;
-        case HOTSPOT_STATE_STOPPING:
-          printf("Stopping...\n");
-          break;
-        case HOTSPOT_STATE_STOPPED:
-          printf("Stopped\n");
-          break;
-        case HOTSPOT_STATE_ERROR:
-          printf("Error\n");
-          break;
+      case HOTSPOT_STATE_ACTIVE:
+        printf("Active ✓\n");
+        break;
+      case HOTSPOT_STATE_STARTING:
+        printf("Starting...\n");
+        break;
+      case HOTSPOT_STATE_STOPPING:
+        printf("Stopping...\n");
+        break;
+      case HOTSPOT_STATE_STOPPED:
+        printf("Stopped\n");
+        break;
+      case HOTSPOT_STATE_ERROR:
+        printf("Error\n");
+        break;
       }
       printf("SSID: %s\n", status.config.ssid);
       printf("Interface: %s\n", status.config.wifi_interface);
-      printf("Security: %s\n", hotspot_security_type_to_string(status.config.security_type));
+      printf("Security: %s\n",
+             hotspot_security_type_to_string(status.config.security_type));
       printf("Status: %s\n", status.status_message);
     } else {
       fprintf(stderr, "Failed to get status for hotspot '%s'\n", hotspot_name);
@@ -325,7 +329,8 @@ static wterm_result_t handle_hotspot_delete(const char *hotspot_name) {
   if (result == WTERM_SUCCESS) {
     printf("✓ Hotspot configuration '%s' deleted successfully\n", hotspot_name);
   } else {
-    fprintf(stderr, "✗ Failed to delete hotspot configuration '%s'\n", hotspot_name);
+    fprintf(stderr, "✗ Failed to delete hotspot configuration '%s'\n",
+            hotspot_name);
   }
 
   hotspot_manager_cleanup();
@@ -341,7 +346,8 @@ static wterm_result_t handle_hotspot_quick(void) {
 
   // Use default values for quick setup
   hotspot_status_t status;
-  result = hotspot_quick_start("wterm_quick", "wterm123456", "wlan0", "eth0", &status);
+  result = hotspot_quick_start("wterm_quick", "wterm123456", "wlan0", "eth0",
+                               &status);
 
   if (result == WTERM_SUCCESS) {
     printf("✓ Quick hotspot started successfully\n");
@@ -361,7 +367,8 @@ static wterm_result_t handle_hotspot_quick(void) {
 static wterm_result_t handle_hotspot_create(void) {
   // Check if fzf is available
   if (!fzf_is_available()) {
-    fprintf(stderr, "fzf not found - interactive hotspot creation requires fzf\n");
+    fprintf(stderr,
+            "fzf not found - interactive hotspot creation requires fzf\n");
     fprintf(stderr, "Install fzf: https://github.com/junegunn/fzf\n");
     fprintf(stderr, "Or use 'wterm hotspot quick' for default settings\n");
     return WTERM_ERROR_GENERAL;
@@ -396,26 +403,33 @@ static wterm_result_t handle_hotspot_create(void) {
 
     // Provide more specific error information
     switch (result) {
-      case WTERM_ERROR_NETWORK:
-        fprintf(stderr, "Network error: Check if NetworkManager is running and interface supports AP mode\n");
-        break;
-      case WTERM_ERROR_INVALID_INPUT:
-        fprintf(stderr, "Invalid configuration: Check SSID length, password, and interface names\n");
-        break;
-      case WTERM_ERROR_PERMISSION:
-        fprintf(stderr, "Permission error: Try running with sudo or check NetworkManager permissions\n");
-        break;
-      case WTERM_ERROR_GENERAL:
-        fprintf(stderr, "A hotspot with this name may already exist. Try 'wterm hotspot list' to check\n");
-        break;
-      default:
-        fprintf(stderr, "Error code: %d\n", result);
-        break;
+    case WTERM_ERROR_NETWORK:
+      fprintf(stderr, "Network error: Check if NetworkManager is running and "
+                      "interface supports AP mode\n");
+      break;
+    case WTERM_ERROR_INVALID_INPUT:
+      fprintf(stderr, "Invalid configuration: Check SSID length, password, and "
+                      "interface names\n");
+      break;
+    case WTERM_ERROR_PERMISSION:
+      fprintf(stderr, "Permission error: Try running with sudo or check "
+                      "NetworkManager permissions\n");
+      break;
+    case WTERM_ERROR_GENERAL:
+      fprintf(stderr, "A hotspot with this name may already exist. Try 'wterm "
+                      "hotspot list' to check\n");
+      break;
+    default:
+      fprintf(stderr, "Error code: %d\n", result);
+      break;
     }
 
     fprintf(stderr, "\nTroubleshooting:\n");
-    fprintf(stderr, "- Check that wlan1 supports Access Point mode: iw dev wlan1 info\n");
-    fprintf(stderr, "- Verify NetworkManager version supports wifi-hotspot: nmcli --version\n");
+    fprintf(
+        stderr,
+        "- Check that wlan1 supports Access Point mode: iw dev wlan1 info\n");
+    fprintf(stderr, "- Verify NetworkManager version supports wifi-hotspot: "
+                    "nmcli --version\n");
     fprintf(stderr, "- Try the quick command: wterm hotspot quick\n");
 
     hotspot_manager_cleanup();

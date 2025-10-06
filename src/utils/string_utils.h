@@ -5,8 +5,8 @@
  * @brief String manipulation utilities for wterm project
  */
 
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 /**
  * @brief Safely copy string with bounds checking
