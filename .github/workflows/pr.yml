@@ -1,0 +1,258 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  pr-validation:
+    name: PR Validation
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check PR title format
+      run: |
+        PR_TITLE="${{ github.event.pull_request.title }}"
+        echo "PR Title: $PR_TITLE"
+
+        # Check if title follows conventional commit format (optional but recommended)
+        if echo "$PR_TITLE" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|chore|ci|build)(\(.+\))?: .+"; then
+          echo "✅ PR title follows conventional commit format"
+        else
+          echo "ℹ️  Consider using conventional commit format: type(scope): description"
+          echo "   Examples: feat(scanner): add 5GHz support, fix(security): sanitize user input"
+        fi
+
+    - name: Check for SECURITY_FIXES.md updates
+      if: contains(github.event.pull_request.labels.*.name, 'security')
+      run: |
+        if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "SECURITY_FIXES.md"; then
+          echo "✅ SECURITY_FIXES.md updated for security PR"
+        else
+          echo "⚠️  Security-labeled PR should update SECURITY_FIXES.md"
+          exit 1
+        fi
+
+    - name: Verify no sensitive data in commits
+      run: |
+        echo "Checking for potentially sensitive data..."
+
+        # Check for common sensitive patterns
+        SENSITIVE_PATTERNS="(password|secret|api[_-]?key|private[_-]?key|token|credential)"
+
+        if git log origin/${{ github.base_ref }}..HEAD --all -p | grep -iE "$SENSITIVE_PATTERNS"; then
+          echo "⚠️  Warning: Potential sensitive data detected in commits"
+          echo "Please review the changes and ensure no secrets are committed"
+          exit 1
+        else
+          echo "✅ No obvious sensitive data detected"
+        fi
+
+  quick-build:
+    name: Quick Build Check
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential network-manager
+
+    - name: Quick build test
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+        cmake --build build --parallel $(nproc)
+
+    - name: Quick test run
+      working-directory: build
+      run: ctest --output-on-failure
+
+  security-impact-check:
+    name: Security Impact Assessment
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for changes in security-critical files
+      run: |
+        echo "Checking for changes in security-critical code..."
+
+        SECURITY_CRITICAL_FILES=(
+          "src/utils/input_sanitizer.c"
+          "src/utils/input_sanitizer.h"
+          "src/core/network_backends/nmcli_backend.c"
+          "src/core/connection.c"
+          "src/fzf_ui.c"
+        )
+
+        CHANGED_CRITICAL=false
+
+        for file in "${SECURITY_CRITICAL_FILES[@]}"; do
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "$file"; then
+            echo "⚠️  Security-critical file modified: $file"
+            CHANGED_CRITICAL=true
+          fi
+        done
+
+        if [ "$CHANGED_CRITICAL" = true ]; then
+          echo ""
+          echo "⚠️  This PR modifies security-critical code!"
+          echo "Please ensure:"
+          echo "  1. All security tests pass"
+          echo "  2. Input validation is maintained"
+          echo "  3. Shell escaping is properly implemented"
+          echo "  4. No command injection vulnerabilities introduced"
+          echo "  5. Code has been reviewed for security implications"
+          echo ""
+          echo "Consider requesting a security review from maintainers."
+        else
+          echo "✅ No security-critical files modified"
+        fi
+
+    - name: Verify security tests still exist
+      run: |
+        if [ -f "tests/test_security.c" ]; then
+          echo "✅ Security test suite present"
+        else
+          echo "❌ Security test suite missing!"
+          exit 1
+        fi
+
+  code-style-check:
+    name: Code Style & Quality
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check for trailing whitespace
+      run: |
+        if git grep -n '[[:space:]]$' -- '*.c' '*.h' ':!*.md'; then
+          echo "❌ Trailing whitespace found (see above)"
+          exit 1
+        else
+          echo "✅ No trailing whitespace"
+        fi
+
+    - name: Check for tabs in source files
+      run: |
+        # Allow tabs in Makefiles, but check C/H files
+        if git grep -n $'\t' -- '*.c' '*.h'; then
+          echo "⚠️  Tabs found in source files (consider using spaces for consistency)"
+        else
+          echo "✅ No tabs in source files"
+        fi
+
+    - name: Check file permissions
+      run: |
+        echo "Checking for executable permissions on source files..."
+
+        if find src/ include/ tests/ -type f \( -name "*.c" -o -name "*.h" \) -executable 2>/dev/null | grep -q .; then
+          echo "❌ Source files should not be executable"
+          find src/ include/ tests/ -type f \( -name "*.c" -o -name "*.h" \) -executable
+          exit 1
+        else
+          echo "✅ Source file permissions correct"
+        fi
+
+  test-coverage-check:
+    name: Test Coverage Verification
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential network-manager
+
+    - name: Check if new code has tests
+      run: |
+        echo "Analyzing changed files for test coverage..."
+
+        # Get list of modified C files (excluding tests)
+        MODIFIED_SRC=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD | grep -E '^src/.*\.c$' || true)
+
+        if [ -n "$MODIFIED_SRC" ]; then
+          echo "Modified source files:"
+          echo "$MODIFIED_SRC"
+          echo ""
+          echo "⚠️  Please ensure new/modified code is covered by tests"
+          echo "Run: ./scripts/build.sh test"
+        else
+          echo "✅ No source files modified or only test files changed"
+        fi
+
+  documentation-check:
+    name: Documentation Check
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for README updates
+      run: |
+        # Check if significant code changes without README update
+        SIGNIFICANT_CHANGES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '^(src/|include/)' | wc -l)
+
+        if [ "$SIGNIFICANT_CHANGES" -gt 5 ]; then
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "README.md\|CLAUDE.md"; then
+            echo "✅ Documentation updated for significant changes"
+          else
+            echo "ℹ️  Consider updating README.md or CLAUDE.md for significant changes"
+          fi
+        else
+          echo "✅ Minor changes, documentation update optional"
+        fi
+
+    - name: Check for header comments
+      run: |
+        echo "Checking for function documentation..."
+
+        # Sample check for basic documentation
+        NEW_FILES=$(git diff --name-only --diff-filter=A origin/${{ github.base_ref }}...HEAD | grep -E '\.(c|h)$' || true)
+
+        if [ -n "$NEW_FILES" ]; then
+          echo "New files added:"
+          echo "$NEW_FILES"
+          echo "ℹ️  Ensure new functions have clear comments explaining their purpose"
+        fi
+
+  pr-summary:
+    name: PR Summary
+    runs-on: ubuntu-24.04
+    needs: [pr-validation, quick-build, security-impact-check, code-style-check, test-coverage-check, documentation-check]
+    if: always()
+
+    steps:
+    - name: PR Check Summary
+      run: |
+        echo "🎉 Pull Request validation complete!"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Ensure all checks pass (see above)"
+        echo "  2. Request review from maintainers"
+        echo "  3. Address any review comments"
+        echo "  4. Wait for approval and merge"
+        echo ""
+        echo "Thank you for contributing to wterm! 🚀"

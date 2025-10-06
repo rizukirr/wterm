@@ -149,6 +149,9 @@ install(DIRECTORY include/
 if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+
+    # Include CI targets for local testing
+    include(cmake/CITargets.cmake)
 endif()
 
 # Documentation

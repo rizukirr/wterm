@@ -1,0 +1,306 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }}, ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        compiler: [gcc, clang]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          build-essential \
+          network-manager \
+          cppcheck \
+          lcov
+
+    - name: Configure CMake
+      env:
+        CC: ${{ matrix.cc }}
+        CXX: ${{ matrix.cxx }}
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DBUILD_TESTS=ON \
+          -DENABLE_COVERAGE=OFF
+
+    - name: Build
+      run: cmake --build build --parallel $(nproc)
+
+    - name: Run tests
+      working-directory: build
+      run: ctest --output-on-failure --verbose
+
+    - name: Verify security tests
+      working-directory: build
+      run: |
+        echo "Running security test suite..."
+        ./tests/test_security
+        echo "✅ All security tests passed"
+
+  security-tests:
+    name: Security Tests (Sanitizers)
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          build-essential \
+          clang \
+          network-manager
+
+    - name: Configure with sanitizers
+      env:
+        CC: clang
+        CXX: clang++
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DBUILD_TESTS=ON \
+          -DENABLE_SANITIZERS=ON
+
+    - name: Build with sanitizers
+      run: cmake --build build --parallel $(nproc)
+
+    - name: Run tests with sanitizers
+      working-directory: build
+      env:
+        ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      run: |
+        echo "Running tests with AddressSanitizer and UndefinedBehaviorSanitizer..."
+        ctest --output-on-failure --verbose
+        echo "✅ No memory leaks or undefined behavior detected"
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck
+
+    - name: Run cppcheck
+      run: |
+        cppcheck --enable=all \
+          --error-exitcode=1 \
+          --suppress=missingIncludeSystem \
+          --suppress=unusedFunction \
+          --inline-suppr \
+          --std=c99 \
+          -I include/ \
+          src/ tests/ 2>&1 | tee cppcheck-report.txt
+
+    - name: Upload cppcheck report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cppcheck-report
+        path: cppcheck-report.txt
+
+  code-coverage:
+    name: Code Coverage
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          build-essential \
+          network-manager \
+          lcov
+
+    - name: Configure with coverage
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DBUILD_TESTS=ON \
+          -DENABLE_COVERAGE=ON
+
+    - name: Build
+      run: cmake --build build --parallel $(nproc)
+
+    - name: Run tests
+      working-directory: build
+      run: ctest --output-on-failure
+
+    - name: Generate coverage report
+      working-directory: build
+      run: |
+        lcov --capture --directory . --output-file coverage.info
+        lcov --remove coverage.info '/usr/*' '*/tests/*' --output-file coverage.info
+        lcov --list coverage.info
+
+    - name: Upload coverage to artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: build/coverage.info
+
+  compiler-warnings:
+    name: Compiler Warnings Check
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential network-manager
+
+    - name: Configure with strict warnings
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DBUILD_TESTS=ON \
+          -DCMAKE_C_FLAGS="-Wall -Wextra -Wpedantic -Werror -Wformat=2 -Wstrict-prototypes"
+
+    - name: Build with warnings as errors
+      run: cmake --build build --parallel $(nproc)
+
+    - name: Run tests
+      working-directory: build
+      run: ctest --output-on-failure
+
+  security-checklist:
+    name: Security Checklist Verification
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential network-manager
+
+    - name: Build project
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+        cmake --build build --parallel $(nproc)
+
+    - name: Verify security test count
+      working-directory: build
+      run: |
+        echo "Verifying all 80 security tests are present and passing..."
+        ./tests/test_security | tee security-output.txt
+
+        # Check for expected test count
+        if grep -q "80 tests passed" security-output.txt; then
+          echo "✅ All 80 security tests passed"
+        else
+          echo "❌ Expected 80 security tests, check output"
+          cat security-output.txt
+          exit 1
+        fi
+
+    - name: Verify input sanitization
+      run: |
+        echo "Checking for input sanitization implementation..."
+        if [ -f "src/utils/input_sanitizer.c" ]; then
+          echo "✅ Input sanitization module present"
+        else
+          echo "❌ Input sanitization module missing"
+          exit 1
+        fi
+
+    - name: Check for dangerous functions
+      run: |
+        echo "Scanning for potentially dangerous function usage..."
+
+        # Check for unsafe string functions (should be minimal/none)
+        UNSAFE_FUNCS=$(grep -r "strcpy\|strcat\|sprintf\|gets" src/ || true)
+
+        if [ -n "$UNSAFE_FUNCS" ]; then
+          echo "⚠️  Warning: Potentially unsafe functions found:"
+          echo "$UNSAFE_FUNCS"
+          echo "Ensure these are properly bounded or replaced with safe alternatives"
+        else
+          echo "✅ No unsafe string functions detected"
+        fi
+
+    - name: Verify shell escaping usage
+      run: |
+        echo "Verifying shell escaping is used in command execution..."
+
+        # Check that nmcli_backend and connection.c use shell_escape
+        if grep -q "shell_escape" src/core/network_backends/nmcli_backend.c && \
+           grep -q "shell_escape" src/core/connection.c; then
+          echo "✅ Shell escaping implemented in critical paths"
+        else
+          echo "❌ Shell escaping not found in expected locations"
+          exit 1
+        fi
+
+  build-artifacts:
+    name: Build Release Artifacts
+    runs-on: ubuntu-24.04
+    needs: [build-and-test, security-tests, static-analysis]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential network-manager
+
+    - name: Build release
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+        cmake --build build --parallel $(nproc)
+
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: wterm-binary
+        path: build/bin/wterm
+        retention-days: 30
