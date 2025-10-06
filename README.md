@@ -1,10 +1,10 @@
-![Version](https://img.shields.io/badge/version-3.0.0-blue)
+![Version](https://img.shields.io/badge/version-3.0.1-blue)
 ![License](https://img.shields.io/badge/license-Open%20Source-green)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 
-# wterm - WiFi TUI Network Manager
+# wterm - TUI Network Manager
 
-A lightweight terminal base WiFi management tool written in C with modern CMake build system. This is a complete rewrite of the original shell-based wterm in v1.0.0, offering improved performance, memory safety, and maintainability.
+A lightweight terminal ui (TUI) base network management tool written in C with modern CMake build system. offering performance, memory safety, and maintainability.
 
 ## Screenshot
 
