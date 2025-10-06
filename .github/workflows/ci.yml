@@ -172,7 +172,7 @@ jobs:
       working-directory: build
       run: |
         lcov --capture --directory . --output-file coverage.info
-        lcov --remove coverage.info '/usr/*' '*/tests/*' --output-file coverage.info
+        lcov --ignore-errors unused --remove coverage.info '/usr/*' '*/tests/*' --output-file coverage.info
         lcov --list coverage.info
 
     - name: Upload coverage to artifacts
@@ -232,11 +232,13 @@ jobs:
         echo "Verifying all 80 security tests are present and passing..."
         ./tests/test_security | tee security-output.txt
 
-        # Check for expected test count
-        if grep -q "80 tests passed" security-output.txt; then
+        # Check for expected test count and all passed
+        if grep -q "Total tests: 80" security-output.txt && \
+           grep -q "Passed: 80" security-output.txt && \
+           grep -q "Failed: 0" security-output.txt; then
           echo "✅ All 80 security tests passed"
         else
-          echo "❌ Expected 80 security tests, check output"
+          echo "❌ Expected 80 security tests with 0 failures, check output"
           cat security-output.txt
           exit 1
         fi
