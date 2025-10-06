@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.12)
 
 project(wterm
-    VERSION 2.0.0
-    DESCRIPTION "WiFi Terminal Management Tool"
+    VERSION 3.0.1
+    DESCRIPTION "wterm TUI Network Manager"
     LANGUAGES C
 )
 

@@ -25,7 +25,6 @@ CTestTestfile.cmake
 *.gdb_index
 
 # Core dumps
-core
 core.*
 
 # IDE and editor files
