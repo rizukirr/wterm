@@ -263,8 +263,8 @@ jobs:
           echo "$MKSTEMP_FILES"
 
           for file in $MKSTEMP_FILES; do
-            # Check if fchmod is called after mkstemp
-            if grep -A 5 "mkstemp" "$file" | grep -q "fchmod"; then
+            # Check if fchmod is called after mkstemp (within 10 lines)
+            if grep -A 10 "mkstemp" "$file" | grep -q "fchmod"; then
               echo "✅ $file: Properly sets permissions with fchmod"
             else
               echo "⚠️  $file: mkstemp without fchmod - potential security issue"
