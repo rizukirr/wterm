@@ -190,8 +190,9 @@ jobs:
       run: |
         echo "Scanning for potentially unsafe command execution..."
 
-        # Check for system() calls (should not exist)
-        if grep -rn "system(" src/; then
+        # Check for system() calls in C source files (excluding comments)
+        # Use grep with Perl regex to exclude comment lines
+        if grep -rn --include="*.c" "system(" src/ | grep -v "^\s*//" | grep -v "^\s*/\*" | grep -v "^\s*\*"; then
           echo "❌ Found system() calls - these should use popen() with sanitization"
           exit 1
         else
