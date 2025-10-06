@@ -10,7 +10,7 @@
 #include "test_utils.h"
 
 // Test shell escaping functionality
-static void test_shell_escape() {
+static void test_shell_escape(void) {
     printf("Testing shell_escape()...\n");
     char output[256];
 
@@ -42,7 +42,7 @@ static void test_shell_escape() {
 }
 
 // Test SSID validation
-static void test_validate_ssid() {
+static void test_validate_ssid(void) {
     printf("Testing validate_ssid()...\n");
 
     // Valid SSIDs
@@ -70,7 +70,7 @@ static void test_validate_ssid() {
 }
 
 // Test interface name validation
-static void test_validate_interface() {
+static void test_validate_interface(void) {
     printf("Testing validate_interface_name()...\n");
 
     // Valid interface names
@@ -92,7 +92,7 @@ static void test_validate_interface() {
 }
 
 // Test hotspot name validation
-static void test_validate_hotspot_name() {
+static void test_validate_hotspot_name(void) {
     printf("Testing validate_hotspot_name()...\n");
 
     // Valid names
@@ -121,7 +121,7 @@ static void test_validate_hotspot_name() {
 }
 
 // Test format specifier detection
-static void test_format_specifiers() {
+static void test_format_specifiers(void) {
     printf("Testing contains_format_specifiers()...\n");
 
     // Strings with format specifiers
@@ -141,7 +141,7 @@ static void test_format_specifiers() {
 }
 
 // Test command injection prevention
-static void test_injection_prevention() {
+static void test_injection_prevention(void) {
     printf("Testing command injection prevention...\n");
 
     const char *injection_attempts[] = {
@@ -185,7 +185,7 @@ static void test_injection_prevention() {
 }
 
 // Test string sanitization
-static void test_sanitize_string() {
+static void test_sanitize_string(void) {
     printf("Testing sanitize_string()...\n");
 
     char output[256];
