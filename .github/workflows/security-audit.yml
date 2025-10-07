@@ -96,6 +96,23 @@ jobs:
         echo ""
         echo "✅ All 80 security tests passed"
 
+    - name: Rebuild for Valgrind (without sanitizers)
+      env:
+        CC: clang
+        CXX: clang++
+      run: |
+        echo "Rebuilding without sanitizers for Valgrind compatibility..."
+
+        # Clean and rebuild with sanitizers OFF
+        rm -rf build
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          -DBUILD_TESTS=ON \
+          -DENABLE_SANITIZERS=OFF
+        cmake --build build --parallel $(nproc)
+
+        echo "✅ Clean build complete"
+
     - name: Memory leak check with Valgrind
       working-directory: build
       run: |
