@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static void print_usage(const char *program_name) {
   printf("Usage: %s [OPTION|COMMAND]\n\n", program_name);
@@ -140,13 +141,46 @@ static wterm_result_t handle_fzf_mode(void) {
       return WTERM_ERROR_GENERAL;
     }
 
+    // Check if already connected to this network
+    if (is_connected_to_network(selected_ssid)) {
+      char message[512];
+      snprintf(message, sizeof(message),
+               "Already connected to '%s'. Disconnect? [y/N]: ", selected_ssid);
+
+      printf("\n%s", message);
+      fflush(stdout);
+
+      char response[10];
+      if (fgets(response, sizeof(response), stdin)) {
+        if (response[0] == 'y' || response[0] == 'Y') {
+          printf("Disconnecting...\n");
+          wterm_result_t disconnect_result = disconnect_current_network();
+
+          if (disconnect_result == WTERM_SUCCESS) {
+            printf("✓ Disconnected successfully!\n");
+          } else {
+            printf("✗ Failed to disconnect\n");
+          }
+
+          // Wait a moment for user to see the message
+          sleep(2);
+        }
+      }
+
+      continue; // Return to network selection
+    }
+
     // Handle connection
     connection_result_t conn_result;
-    if (network_requires_password(selected_network->security)) {
+    bool is_secured = network_requires_password(selected_network->security);
+    bool is_saved = is_saved_connection(selected_ssid);
+
+    if (is_secured && !is_saved) {
+      // Secured network without saved connection - ask for password
       char password[256];
       if (!fzf_get_password(selected_ssid, password, sizeof(password))) {
         fzf_show_message("Connection cancelled.");
-        return WTERM_SUCCESS;
+        continue; // Return to network selection instead of exiting
       }
 
       fzf_show_message("Connecting...");
@@ -154,7 +188,13 @@ static wterm_result_t handle_fzf_mode(void) {
 
       // Clear password from memory
       memset(password, 0, sizeof(password));
+    } else if (is_secured && is_saved) {
+      // Secured network with saved connection - use stored password
+      fzf_show_message("Connecting (using saved credentials)...");
+      // Pass empty password, connection.c will use 'nmcli connection up'
+      conn_result = connect_to_secured_network(selected_ssid, "");
     } else {
+      // Open network
       fzf_show_message("Connecting to open network...");
       conn_result = connect_to_open_network(selected_ssid);
     }

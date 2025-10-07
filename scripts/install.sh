@@ -212,10 +212,10 @@ switch_to_networkmanager() {
         sudo systemctl disable --now systemd-resolved
     fi
 
-    # Install NetworkManager and fzf
-    print_status "INFO" "Installing NetworkManager and fzf..."
-    if ! sudo pacman -S --needed --noconfirm networkmanager fzf; then
-        print_status "ERROR" "Failed to install NetworkManager and fzf"
+    # Install NetworkManager, iw, and fzf
+    print_status "INFO" "Installing NetworkManager, iw, and fzf..."
+    if ! sudo pacman -S --needed --noconfirm networkmanager iw fzf; then
+        print_status "ERROR" "Failed to install NetworkManager, iw, and fzf"
         return 1
     fi
 
@@ -258,6 +258,11 @@ check_network_manager_availability() {
         return 1
     fi
 
+    # Check for iw (kernel-level WiFi checks)
+    if ! command -v iw &> /dev/null; then
+        missing_deps+=("iw")
+    fi
+
     # Check for fzf (interactive network selection)
     if ! command -v fzf &> /dev/null; then
         missing_deps+=("fzf")
@@ -265,21 +270,26 @@ check_network_manager_availability() {
 
     print_status "OK" "NetworkManager is working correctly"
 
-    # Handle missing fzf
+    # Handle missing dependencies
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        print_status "INFO" "Missing optional dependency: fzf"
-        print_status "INFO" "fzf enables interactive network selection"
+        print_status "INFO" "Missing optional dependencies: ${missing_deps[*]}"
+        if [[ " ${missing_deps[*]} " =~ " iw " ]]; then
+            print_status "INFO" "iw enables better zombie connection detection"
+        fi
+        if [[ " ${missing_deps[*]} " =~ " fzf " ]]; then
+            print_status "INFO" "fzf enables interactive network selection"
+        fi
         echo
-        read -p "Do you want to install fzf? [Y/n]: " -r
+        read -p "Do you want to install missing dependencies? [Y/n]: " -r
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            print_status "INFO" "Installing fzf..."
-            sudo pacman -S --needed --noconfirm fzf
-            print_status "OK" "fzf installed"
+            print_status "INFO" "Installing ${missing_deps[*]}..."
+            sudo pacman -S --needed --noconfirm "${missing_deps[@]}"
+            print_status "OK" "Dependencies installed"
         else
-            print_status "INFO" "Skipping fzf - will use text-based selection"
+            print_status "INFO" "Skipping optional dependencies"
         fi
     else
-        print_status "OK" "fzf is available for interactive selection"
+        print_status "OK" "All optional dependencies available"
     fi
 
     return 0

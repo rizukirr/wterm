@@ -14,6 +14,50 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <fcntl.h>
+
+// Helper function to check if a saved connection exists for the given SSID
+static bool connection_exists(const char* ssid) {
+    if (!ssid || is_string_empty(ssid)) {
+        return false;
+    }
+
+    char command[512];
+    snprintf(command, sizeof(command), "nmcli -t -f NAME,TYPE connection show");
+
+    FILE *fp = popen(command, "r");
+    if (!fp) {
+        return false;
+    }
+
+    bool exists = false;
+    char buffer[512];
+    while (fgets(buffer, sizeof(buffer), fp)) {
+        buffer[strcspn(buffer, "\n")] = '\0';
+
+        // Parse line: NAME:TYPE
+        char *colon = strchr(buffer, ':');
+        if (colon) {
+            *colon = '\0';
+            const char *name = buffer;
+            const char *type = colon + 1;
+
+            // Check if this is a WiFi connection with matching SSID
+            if (strcmp(type, "802-11-wireless") == 0 && strcmp(name, ssid) == 0) {
+                exists = true;
+                break;
+            }
+        }
+    }
+
+    pclose(fp);
+    return exists;
+}
+
+// Public function to check if a saved connection exists
+bool is_saved_connection(const char* ssid) {
+    return connection_exists(ssid);
+}
 
 // Helper function to execute nmcli connection command and parse result
 static connection_result_t execute_nmcli_connect(const char* command, const char* ssid) {
@@ -41,9 +85,73 @@ static connection_result_t execute_nmcli_connect(const char* command, const char
     int exit_code = pclose(fp);
 
     if (exit_code == 0) {
-        result.result = WTERM_SUCCESS;
-        result.connected = true;
-        snprintf(result.error_message, sizeof(result.error_message), "Successfully connected to %s", ssid);
+        // nmcli command succeeded, but we need to verify the connection actually activated
+        // Wait up to 15 seconds for connection to establish
+        sleep(2); // Give NetworkManager a moment to start activation
+
+        for (int i = 0; i < 13; i++) {
+            connection_status_t status = get_connection_status();
+
+            // Check if we're connected to the target SSID
+            if (status.is_connected && strcmp(status.connected_ssid, ssid) == 0) {
+                result.result = WTERM_SUCCESS;
+                result.connected = true;
+                snprintf(result.error_message, sizeof(result.error_message),
+                        "Successfully connected to %s", ssid);
+                return result;
+            }
+
+            // If connection failed or was deactivated, stop waiting
+            // Check if the connection profile still exists and is in failed state
+            FILE *check_fp = popen("nmcli -t -f NAME,STATE connection show 2>&1", "r");
+            if (check_fp) {
+                char check_buffer[256];
+                bool connection_failed = false;
+
+                while (fgets(check_buffer, sizeof(check_buffer), check_fp)) {
+                    check_buffer[strcspn(check_buffer, "\n")] = '\0';
+
+                    // Parse NAME:STATE
+                    char *colon = strchr(check_buffer, ':');
+                    if (colon) {
+                        *colon = '\0';
+                        const char *name = check_buffer;
+                        const char *state = colon + 1;
+
+                        // Check if this connection is for our SSID and in failed/deactivated state
+                        if (strstr(name, ssid) != NULL) {
+                            if (strcmp(state, "activated") == 0) {
+                                // Connection is activated, but might not be WiFi
+                                // Continue waiting for get_connection_status to confirm WiFi
+                                break;
+                            } else if (strstr(state, "deactivat") != NULL) {
+                                connection_failed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                pclose(check_fp);
+
+                if (connection_failed) {
+                    result.result = WTERM_ERROR_NETWORK;
+                    result.error_type = CONN_ERROR_AUTH_FAILED;
+                    snprintf(result.error_message, sizeof(result.error_message),
+                            "Connection to %s failed or deactivated", ssid);
+                    result.connected = false;
+                    return result;
+                }
+            }
+
+            sleep(1);
+        }
+
+        // Timeout - connection didn't establish in time
+        result.result = WTERM_ERROR_NETWORK;
+        result.error_type = CONN_ERROR_TIMEOUT;
+        snprintf(result.error_message, sizeof(result.error_message),
+                "Connection to %s timed out (check signal strength, password, or AP availability)", ssid);
+        result.connected = false;
     } else {
         result.result = WTERM_ERROR_NETWORK;
         result.error_type = parse_nmcli_error(error_output);
@@ -79,7 +187,15 @@ connection_result_t connect_to_open_network(const char* ssid) {
     }
 
     char command[512];
-    snprintf(command, sizeof(command), "nmcli device wifi connect %s 2>&1", escaped_ssid);
+
+    // Check if a saved connection exists for this SSID
+    if (connection_exists(ssid)) {
+        // Use 'nmcli connection up' for existing connections
+        snprintf(command, sizeof(command), "nmcli connection up %s 2>&1", escaped_ssid);
+    } else {
+        // Use 'nmcli device wifi connect' for new connections
+        snprintf(command, sizeof(command), "nmcli device wifi connect %s 2>&1", escaped_ssid);
+    }
 
     return execute_nmcli_connect(command, ssid);
 }
@@ -93,12 +209,6 @@ connection_result_t connect_to_secured_network(const char* ssid, const char* pas
         return result;
     }
 
-    if (!password || is_string_empty(password)) {
-        result.result = WTERM_ERROR_INVALID_INPUT;
-        safe_string_copy(result.error_message, "Password required for secured network", sizeof(result.error_message));
-        return result;
-    }
-
     // Validate SSID
     if (!validate_ssid(ssid)) {
         result.result = WTERM_ERROR_INVALID_INPUT;
@@ -106,25 +216,41 @@ connection_result_t connect_to_secured_network(const char* ssid, const char* pas
         return result;
     }
 
-    // Escape both SSID and password for shell safety
+    // Escape SSID for shell safety
     char escaped_ssid[256];
-    char escaped_password[512];
-
     if (!shell_escape(ssid, escaped_ssid, sizeof(escaped_ssid))) {
         result.result = WTERM_ERROR_INVALID_INPUT;
         safe_string_copy(result.error_message, "SSID too long for shell escaping", sizeof(result.error_message));
         return result;
     }
 
-    if (!shell_escape(password, escaped_password, sizeof(escaped_password))) {
-        result.result = WTERM_ERROR_INVALID_INPUT;
-        safe_string_copy(result.error_message, "Password too long for shell escaping", sizeof(result.error_message));
-        return result;
-    }
-
     char command[1024];
-    snprintf(command, sizeof(command), "nmcli device wifi connect %s password %s 2>&1",
-             escaped_ssid, escaped_password);
+
+    // Check if a saved connection exists for this SSID
+    if (connection_exists(ssid)) {
+        // Use 'nmcli connection up' for existing connections
+        // Password is stored in the saved connection, so we don't need to pass it
+        snprintf(command, sizeof(command), "nmcli connection up %s 2>&1", escaped_ssid);
+    } else {
+        // New connection - password is required
+        if (!password || is_string_empty(password)) {
+            result.result = WTERM_ERROR_INVALID_INPUT;
+            safe_string_copy(result.error_message, "Password required for secured network", sizeof(result.error_message));
+            return result;
+        }
+
+        // Escape password for shell safety
+        char escaped_password[512];
+        if (!shell_escape(password, escaped_password, sizeof(escaped_password))) {
+            result.result = WTERM_ERROR_INVALID_INPUT;
+            safe_string_copy(result.error_message, "Password too long for shell escaping", sizeof(result.error_message));
+            return result;
+        }
+
+        // Use 'nmcli device wifi connect' for new connections
+        snprintf(command, sizeof(command), "nmcli device wifi connect %s password %s 2>&1",
+                 escaped_ssid, escaped_password);
+    }
 
     return execute_nmcli_connect(command, ssid);
 }
@@ -132,7 +258,8 @@ connection_result_t connect_to_secured_network(const char* ssid, const char* pas
 connection_status_t get_connection_status(void) {
     connection_status_t status = {0};
 
-    FILE *fp = popen("nmcli -t -f ACTIVE,SSID device wifi list", "r");
+    // Get active connection profile name for WiFi
+    FILE *fp = popen("nmcli -t -f NAME,TYPE,DEVICE connection show --active", "r");
     if (!fp) {
         return status;
     }
@@ -141,16 +268,46 @@ connection_status_t get_connection_status(void) {
     while (fgets(buffer, sizeof(buffer), fp)) {
         buffer[strcspn(buffer, "\n")] = '\0';
 
-        // Parse line: ACTIVE:SSID
-        if (strncmp(buffer, "yes:", 4) == 0) {
-            const char *ssid_start = buffer + 4;
-            safe_string_copy(status.connected_ssid, ssid_start, sizeof(status.connected_ssid));
+        // Parse line: NAME:TYPE:DEVICE
+        char *first_colon = strchr(buffer, ':');
+        if (!first_colon) continue;
+
+        char *second_colon = strchr(first_colon + 1, ':');
+        if (!second_colon) continue;
+
+        // Extract fields
+        *first_colon = '\0';
+        *second_colon = '\0';
+        const char *name = buffer;
+        const char *type = first_colon + 1;
+
+        // Check if this is a WiFi connection
+        if (strcmp(type, "802-11-wireless") == 0) {
+            safe_string_copy(status.connection_name, name, sizeof(status.connection_name));
             status.is_connected = true;
             break;
         }
     }
 
     pclose(fp);
+
+    // Get SSID from device wifi list if connected
+    if (status.is_connected) {
+        fp = popen("nmcli -t -f ACTIVE,SSID device wifi list", "r");
+        if (fp) {
+            while (fgets(buffer, sizeof(buffer), fp)) {
+                buffer[strcspn(buffer, "\n")] = '\0';
+
+                // Parse line: ACTIVE:SSID
+                if (strncmp(buffer, "yes:", 4) == 0) {
+                    const char *ssid_start = buffer + 4;
+                    safe_string_copy(status.connected_ssid, ssid_start, sizeof(status.connected_ssid));
+                    break;
+                }
+            }
+            pclose(fp);
+        }
+    }
 
     // Get IP address if connected
     if (status.is_connected) {
@@ -176,20 +333,122 @@ connection_status_t get_connection_status(void) {
 wterm_result_t disconnect_current_network(void) {
     connection_status_t status = get_connection_status();
 
-    if (!status.is_connected) {
-        return WTERM_SUCCESS; // Already disconnected
+    // Try to disconnect active NetworkManager connection if one exists
+    if (status.is_connected && status.connection_name[0] != '\0') {
+        char* const args[] = {
+            "nmcli",
+            "connection",
+            "down",
+            status.connection_name,
+            NULL
+        };
+
+        safe_exec_check("nmcli", args);
+        // Don't return yet - need to check for zombie connections
     }
 
-    char* const args[] = {
-        "nmcli",
-        "device",
-        "wifi",
-        "disconnect",
-        NULL
-    };
+    // Also try device-level disconnect to handle zombie connections
+    // This ensures we disconnect even if NetworkManager has no active connection profile
+    // but the WiFi device still has a kernel-level association
+    // Note: This may fail if NM already considers the device disconnected (expected for zombies)
+    // We suppress stderr to avoid confusing error messages for expected failures
+    pid_t device_pid = fork();
+    if (device_pid == 0) {
+        // Child: redirect stderr to /dev/null to suppress expected error messages
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
 
-    bool result = safe_exec_check("nmcli", args);
-    return result ? WTERM_SUCCESS : WTERM_ERROR_NETWORK;
+        char* const device_args[] = {
+            "nmcli",
+            "device",
+            "disconnect",
+            "wlan0",
+            NULL
+        };
+        execvp("nmcli", device_args);
+        _exit(127);
+    } else if (device_pid > 0) {
+        // Parent: wait for child but ignore result (failure is expected for zombies)
+        int status;
+        waitpid(device_pid, &status, 0);
+    }
+
+    // Verify disconnection by checking if any WiFi association remains at kernel level
+    sleep(1); // Give NetworkManager time to process
+
+    FILE *fp = popen("iw dev wlan0 link 2>&1", "r");
+    if (fp) {
+        char buffer[256];
+        bool still_connected = false;
+
+        while (fgets(buffer, sizeof(buffer), fp)) {
+            if (strstr(buffer, "Connected to") != NULL) {
+                still_connected = true;
+                break;
+            }
+        }
+        pclose(fp);
+
+        if (still_connected) {
+            // Zombie connection detected - force device reset
+            // Set device unmanaged then managed again to force cleanup
+            char* const unmanage_args[] = {
+                "nmcli",
+                "device",
+                "set",
+                "wlan0",
+                "managed",
+                "no",
+                NULL
+            };
+            safe_exec_check("nmcli", unmanage_args);
+
+            sleep(1);
+
+            char* const manage_args[] = {
+                "nmcli",
+                "device",
+                "set",
+                "wlan0",
+                "managed",
+                "yes",
+                NULL
+            };
+            safe_exec_check("nmcli", manage_args);
+
+            sleep(1);
+        }
+    }
+
+    // Final verification
+    connection_status_t final_status = get_connection_status();
+    if (final_status.is_connected) {
+        return WTERM_ERROR_NETWORK; // Still connected somehow
+    }
+
+    // Check kernel level one more time
+    fp = popen("iw dev wlan0 link 2>&1", "r");
+    if (fp) {
+        char buffer[256];
+        bool still_connected = false;
+
+        while (fgets(buffer, sizeof(buffer), fp)) {
+            if (strstr(buffer, "Connected to") != NULL) {
+                still_connected = true;
+                break;
+            }
+        }
+        pclose(fp);
+
+        if (still_connected) {
+            return WTERM_ERROR_NETWORK; // Kernel-level association still exists
+        }
+    }
+
+    return WTERM_SUCCESS;
 }
 
 bool network_requires_password(const char* security) {
