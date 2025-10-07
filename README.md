@@ -35,16 +35,16 @@ wget https://github.com/your-repo/wterm/releases/download/vVERSION/wterm-x86_64-
 
 # Install runtime dependencies based on your distro
 # Arch Linux
-sudo pacman -S networkmanager fzf
+sudo pacman -S networkmanager iw fzf
 
 # Ubuntu/Debian
-sudo apt update && sudo apt install network-manager fzf
+sudo apt update && sudo apt install network-manager iw fzf
 
 # Fedora
-sudo dnf install NetworkManager fzf
+sudo dnf install NetworkManager iw fzf
 
 # openSUSE
-sudo zypper install NetworkManager fzf
+sudo zypper install NetworkManager iw fzf
 
 # Make executable and install
 chmod +x wterm-x86_64-linux
@@ -57,7 +57,7 @@ wterm --version
 **Requirements:**
 
 - Linux x86_64 with glibc 2.31+ (most modern distros from 2020+)
-- NetworkManager and fzf installed
+- NetworkManager, iw, and fzf installed
 
 ### Option 2: Install Script from Source
 
@@ -91,6 +91,7 @@ The install script automatically handles dependencies on Arch Linux.
 ### Runtime Dependencies
 
 - **NetworkManager** (`nmcli` command)
+- **iw** (for kernel-level WiFi checks and zombie connection detection)
 - **fzf** (for interactive network selection)
 - **Linux** system with glibc 2.31+ (works on most modern distros: Arch, Ubuntu 20.04+, Fedora, Debian, openSUSE)
 
@@ -99,7 +100,7 @@ The install script automatically handles dependencies on Arch Linux.
 The install script can automatically install missing dependencies on Arch Linux:
 
 ```bash
-sudo pacman -S base-devel cmake networkmanager fzf
+sudo pacman -S base-devel cmake networkmanager iw fzf
 ```
 
 ## Build System
@@ -314,7 +315,7 @@ ls build/*.tar.gz build/*.deb
 | **Network Selection** | Manual SSID typing          | Fuzzy search + selection    |
 | **Rescan**            | Manual restart required     | Live rescan with animations |
 | **Memory Safety**     | Shell-safe                  | Explicit bounds checking    |
-| **Dependencies**      | `iwd`, `fzf`, `bash`        | `NetworkManager`, `fzf`     |
+| **Dependencies**      | `iwd`, `fzf`, `bash`        | `NetworkManager`, `iw`, `fzf` |
 | **Testing**           | Manual                      | Comprehensive test suite    |
 | **Build System**      | None                        | Professional CMake          |
 | **Bug Handling**      | Open network bug present    | Open network bug fixed      |
