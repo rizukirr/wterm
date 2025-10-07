@@ -36,6 +36,7 @@ typedef struct {
 typedef struct {
     bool is_connected;
     char connected_ssid[MAX_STR_SSID];
+    char connection_name[MAX_STR_SSID];  // Connection profile name (may differ from SSID)
     char connection_uuid[64];
     char ip_address[16];
 } connection_status_t;
@@ -110,3 +111,10 @@ bool is_connected_to_network(const char* ssid);
  * @return connection_result_t Final connection result
  */
 connection_result_t monitor_connection_progress(const char* ssid, int timeout_seconds);
+
+/**
+ * @brief Check if a saved connection exists for the given SSID
+ * @param ssid Network SSID to check
+ * @return bool true if a saved connection exists, false otherwise
+ */
+bool is_saved_connection(const char* ssid);
