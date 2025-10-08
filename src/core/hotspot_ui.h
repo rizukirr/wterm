@@ -14,10 +14,13 @@
  *
  * Displays main menu with options to create, start, stop, delete hotspots.
  * Uses fzf for menu selection and delegates operations to hotspot_nm.sh script.
+ * Automatically elevates privileges with sudo if not running as root.
  *
+ * @param argc Argument count from main()
+ * @param argv Argument vector from main()
  * @return 0 on success, non-zero on error
  */
-int hotspot_interactive_menu(void);
+int hotspot_interactive_menu(int argc, char *argv[]);
 
 /**
  * @brief Select a hotspot from available hotspots using fzf

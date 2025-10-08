@@ -123,7 +123,10 @@ static wterm_result_t handle_fzf_mode(void) {
 
     // Check if user selected hotspot manager
     if (strcmp(selected_ssid, "HOTSPOT") == 0) {
-      hotspot_interactive_menu();
+      // Need to get argc/argv from somewhere - we'll handle this specially
+      // For now, create a minimal argv for hotspot-only mode
+      char *hotspot_argv[] = {"wterm", "hotspot", NULL};
+      hotspot_interactive_menu(2, hotspot_argv);
       continue; // Return to network selection after hotspot menu
     }
 
@@ -507,13 +510,13 @@ static wterm_result_t handle_hotspot_create(void) {
 static wterm_result_t handle_hotspot_commands(int argc, char *argv[]) {
   if (argc < 3) {
     // No subcommand provided, show interactive menu by default
-    return hotspot_interactive_menu();
+    return hotspot_interactive_menu(argc, argv);
   }
 
   const char *subcommand = argv[2];
 
   if (strcmp(subcommand, "menu") == 0) {
-    return hotspot_interactive_menu();
+    return hotspot_interactive_menu(argc, argv);
   } else if (strcmp(subcommand, "list") == 0) {
     return handle_hotspot_list();
   } else if (strcmp(subcommand, "start") == 0) {

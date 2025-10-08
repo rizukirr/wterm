@@ -315,6 +315,39 @@ cmd_start() {
         print_success "Hotspot '$name' started successfully"
         print_info "SSID: $name"
         print_info "Gateway: $(nmcli -t -f IP4.ADDRESS connection show "$conn_name" | cut -d: -f2 | cut -d/ -f1)"
+
+        # Configure NAT for internet sharing
+        # Get the default route interface (internet source)
+        local inet_iface
+        inet_iface=$(ip route | grep default | awk '{print $5}' | head -1)
+
+        if [[ -n "$inet_iface" ]]; then
+            print_info "Configuring internet sharing from $inet_iface..."
+
+            # Get hotspot subnet (default 192.168.12.0/24 but can be customized)
+            local hotspot_subnet
+            hotspot_subnet=$(nmcli -t -f IP4.ADDRESS connection show "$conn_name" | cut -d: -f2)
+            if [[ -z "$hotspot_subnet" ]]; then
+                hotspot_subnet="192.168.12.0/24"
+            fi
+
+            # Create NAT rules for internet sharing
+            # Use -C to check if rule exists, only add if it doesn't
+            iptables -t nat -C POSTROUTING -s "$hotspot_subnet" ! -d "$hotspot_subnet" -j MASQUERADE 2>/dev/null || \
+                iptables -t nat -A POSTROUTING -s "$hotspot_subnet" ! -d "$hotspot_subnet" -j MASQUERADE
+
+            # Allow forwarding from hotspot to internet
+            iptables -C FORWARD -i "$iface" -o "$inet_iface" -j ACCEPT 2>/dev/null || \
+                iptables -A FORWARD -i "$iface" -o "$inet_iface" -j ACCEPT
+
+            # Allow forwarding from internet to hotspot (established connections)
+            iptables -C FORWARD -i "$inet_iface" -o "$iface" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+                iptables -A FORWARD -i "$inet_iface" -o "$iface" -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+            print_success "Internet sharing configured: $inet_iface → $iface"
+        else
+            print_warning "No internet connection detected - hotspot will work without internet"
+        fi
     else
         print_error "Failed to start hotspot '$name'"
         print_info "Possible reasons:"
@@ -343,8 +376,29 @@ cmd_stop() {
 
     print_info "Stopping hotspot '$name'..."
 
+    # Get hotspot interface and subnet before stopping
+    local iface
+    iface=$(nmcli -t -f GENERAL.DEVICES connection show "$conn_name" 2>/dev/null | cut -d: -f2)
+    local hotspot_subnet
+    hotspot_subnet=$(nmcli -t -f IP4.ADDRESS connection show "$conn_name" 2>/dev/null | cut -d: -f2)
+
     if nmcli connection down "$conn_name" &>/dev/null; then
         print_success "Hotspot '$name' stopped"
+
+        # Clean up iptables NAT rules
+        if [[ -n "$hotspot_subnet" ]]; then
+            print_info "Cleaning up NAT rules..."
+            # Remove NAT masquerading rule
+            iptables -t nat -D POSTROUTING -s "$hotspot_subnet" ! -d "$hotspot_subnet" -j MASQUERADE 2>/dev/null || true
+
+            # Remove forwarding rules (try to remove all matching rules)
+            if [[ -n "$iface" ]]; then
+                # Remove outbound forwarding rules
+                while iptables -D FORWARD -i "$iface" -j ACCEPT 2>/dev/null; do :; done
+                # Remove inbound forwarding rules
+                while iptables -D FORWARD -o "$iface" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; do :; done
+            fi
+        fi
     else
         print_error "Failed to stop hotspot '$name'"
         exit 1

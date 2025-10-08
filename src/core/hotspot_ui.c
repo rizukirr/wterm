@@ -8,12 +8,15 @@
 
 #include "hotspot_ui.h"
 #include "../../include/wterm/common.h"
+#include "../utils/safe_exec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>  // For explicit_bzero
 #include <unistd.h>
 #include <termios.h>
+#include <sys/types.h>
+#include <errno.h>
 
 #define SCRIPT_PATH "./scripts/hotspot_nm.sh"
 #define MAX_BUFFER 1024
@@ -22,6 +25,49 @@
 #define HOTSPOT_INTERFACE_MAX 32
 #define HOTSPOT_BAND_MAX 16
 #define HOTSPOT_ACTION_MAX 64
+
+// Helper to check if running as root
+static bool is_root(void) {
+    return (geteuid() == 0);
+}
+
+// Check and ensure root privileges for hotspot operations
+static void ensure_root_privileges(int argc, char *argv[]) {
+    if (is_root()) {
+        return;  // Already root, nothing to do
+    }
+
+    // Check if sudo is available
+    if (!safe_command_exists("sudo")) {
+        fprintf(stderr, "ERROR: Hotspot operations require root privileges.\n");
+        fprintf(stderr, "Please run as root or install sudo.\n");
+        exit(1);
+    }
+
+    // Build sudo command arguments
+    char **sudo_args = malloc((argc + 2) * sizeof(char *));
+    if (!sudo_args) {
+        fprintf(stderr, "ERROR: Failed to allocate memory\n");
+        exit(1);
+    }
+
+    sudo_args[0] = "sudo";
+    for (int i = 0; i < argc; i++) {
+        sudo_args[i + 1] = argv[i];
+    }
+    sudo_args[argc + 1] = NULL;
+
+    printf("Hotspot operations require root privileges.\n");
+    printf("Re-executing with sudo...\n\n");
+
+    // Execute with sudo
+    execvp("sudo", sudo_args);
+
+    // If we get here, exec failed
+    fprintf(stderr, "ERROR: Failed to execute with sudo: %s\n", strerror(errno));
+    free(sudo_args);
+    exit(1);
+}
 
 // Helper function to run script command and capture output
 static bool run_script_command(const char* args, char* output, size_t output_size) {
@@ -346,7 +392,10 @@ int hotspot_show_status(void) {
     }
 }
 
-int hotspot_interactive_menu(void) {
+int hotspot_interactive_menu(int argc, char *argv[]) {
+    // Ensure we have root privileges for hotspot operations
+    ensure_root_privileges(argc, argv);
+
     while (1) {
         char selection[MAX_BUFFER];
 
