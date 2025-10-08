@@ -344,6 +344,28 @@ install_executable() {
     print_status "OK" "Executable installed to $dest_file"
 }
 
+# Install hotspot management script
+install_hotspot_script() {
+    print_status "INFO" "Installing hotspot management script..."
+
+    local src_script="$PROJECT_ROOT/scripts/hotspot_nm.sh"
+    local dest_script="/usr/local/bin/hotspot_nm.sh"
+
+    # Check if script exists in source
+    if [[ ! -f "$src_script" ]]; then
+        print_status "WARN" "Hotspot script not found at $src_script"
+        print_status "INFO" "Hotspot functionality may not work"
+        return 0
+    fi
+
+    # Install with sudo
+    sudo cp "$src_script" "$dest_script"
+    sudo chmod +x "$dest_script"
+    INSTALLED_FILES+=("$dest_script")
+
+    print_status "OK" "Hotspot script installed to $dest_script"
+}
+
 # Run tests before installation
 run_tests() {
     print_status "INFO" "Running tests to verify installation..."
@@ -422,6 +444,9 @@ main() {
     echo
 
     install_executable
+    echo
+
+    install_hotspot_script
     echo
 
     verify_installation

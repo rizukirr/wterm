@@ -141,6 +141,11 @@ install(TARGETS wterm
     RUNTIME DESTINATION bin
 )
 
+# Install hotspot management script
+install(PROGRAMS scripts/hotspot_nm.sh
+    DESTINATION bin
+)
+
 install(DIRECTORY include/
     DESTINATION include
     FILES_MATCHING PATTERN "*.h"

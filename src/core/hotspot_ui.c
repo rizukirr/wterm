@@ -17,14 +17,29 @@
 #include <termios.h>
 #include <sys/types.h>
 #include <errno.h>
+#include <sys/stat.h>
 
-#define SCRIPT_PATH "./scripts/hotspot_nm.sh"
+// Try installed location first, fall back to development location
+#define SCRIPT_PATH_INSTALLED "/usr/local/bin/hotspot_nm.sh"
+#define SCRIPT_PATH_DEV "./scripts/hotspot_nm.sh"
+
 #define MAX_BUFFER 1024
 #define MAX_COMMAND 2048
 #define HOTSPOT_PASSWORD_MAX 64
 #define HOTSPOT_INTERFACE_MAX 32
 #define HOTSPOT_BAND_MAX 16
 #define HOTSPOT_ACTION_MAX 64
+
+// Get the actual script path (installed or development)
+static const char* get_script_path(void) {
+    struct stat st;
+    // Check if installed version exists
+    if (stat(SCRIPT_PATH_INSTALLED, &st) == 0) {
+        return SCRIPT_PATH_INSTALLED;
+    }
+    // Fall back to development version
+    return SCRIPT_PATH_DEV;
+}
 
 // Helper to check if running as root
 static bool is_root(void) {
@@ -72,7 +87,7 @@ static void ensure_root_privileges(int argc, char *argv[]) {
 // Helper function to run script command and capture output
 static bool run_script_command(const char* args, char* output, size_t output_size) {
     char command[MAX_COMMAND];
-    snprintf(command, sizeof(command), "%s %s 2>&1", SCRIPT_PATH, args);
+    snprintf(command, sizeof(command), "%s %s 2>&1", get_script_path(), args);
 
     FILE* pipe = popen(command, "r");
     if (!pipe) {
@@ -100,7 +115,7 @@ static bool get_fzf_selection(const char* script_args, const char* prompt,
     snprintf(command, sizeof(command),
              "%s %s 2>/dev/null | fzf --border=rounded --prompt='%s' "
              "--header='%s' --height=40%% --reverse --ansi",
-             SCRIPT_PATH, script_args, prompt, header);
+             get_script_path(), script_args, prompt, header);
 
     FILE* pipe = popen(command, "r");
     if (!pipe) {
