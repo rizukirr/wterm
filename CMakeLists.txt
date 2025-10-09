@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.12)
 
 project(wterm
-    VERSION 3.0.1
+    VERSION 3.1.0
     DESCRIPTION "wterm TUI Network Manager"
     LANGUAGES C
 )

@@ -5,7 +5,6 @@
 
 #include "../include/wterm/common.h"
 #include "../include/wterm/tui_interface.h"
-#include "core/connection.h"
 #include "core/hotspot_manager.h"
 #include "core/hotspot_ui.h"
 #include "core/network_scanner.h"
@@ -14,11 +13,14 @@
 #include <string.h>
 #include <unistd.h>
 
+static void print_version(void) { printf("wterm version 3.1.0\n"); }
+
 static void print_usage(const char *program_name) {
   printf("Usage: %s [OPTION|COMMAND]\n\n", program_name);
   printf("WiFi network connection and hotspot management tool.\n\n");
   printf("Options:\n");
-  printf("  -h, --help     Show this help message\n\n");
+  printf("  -h, --help       Show this help message\n");
+  printf("  -v, --version    Show version information\n\n");
   printf("Commands:\n");
   printf("  hotspot        Manage WiFi hotspots\n");
   printf("  [no command]   Show network selection interface (default)\n\n");
@@ -89,7 +91,8 @@ static wterm_result_t scan_networks_with_loading(network_list_t *network_list,
 static wterm_result_t handle_tui_mode(void) {
   // Check if TUI is available
   if (!tui_is_available()) {
-    fprintf(stderr, "TUI not available - must run in a proper terminal (TTY)\n");
+    fprintf(stderr,
+            "TUI not available - must run in a proper terminal (TTY)\n");
     return handle_list_networks();
   }
 
@@ -109,8 +112,8 @@ static wterm_result_t handle_tui_mode(void) {
   while (true) {
     // Show network selection (TUI handles connections internally)
     char selected_ssid[MAX_STR_SSID];
-    bool selection_made = tui_select_network(&network_list, selected_ssid,
-                                            sizeof(selected_ssid));
+    bool selection_made =
+        tui_select_network(&network_list, selected_ssid, sizeof(selected_ssid));
 
     if (!selection_made) {
       // User quit
@@ -410,6 +413,10 @@ int main(int argc, char *argv[]) {
     if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
       print_usage(argv[0]);
       return WTERM_SUCCESS;
+    } else if (strcmp(argv[1], "-v") == 0 ||
+               strcmp(argv[1], "--version") == 0) {
+      print_version();
+      return WTERM_SUCCESS;
     } else if (strcmp(argv[1], "hotspot") == 0) {
       // Handle hotspot commands
       return handle_hotspot_commands(argc, argv);
@@ -420,7 +427,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Default action: show TUI/fzf interface
+  // Default action: show TUI interface
   wterm_result_t result = handle_tui_mode();
   return result;
 }
