@@ -4,7 +4,7 @@
 
 # wterm - TUI Network Manager
 
-A lightweight Terminal UI (TUI) base network management tool written in C with modern CMake build system. offering performance, memory safety, and maintainability.
+A lightweight Terminal UI (TUI) base network manager for linux written in C.
 
 ## Screenshot
 
