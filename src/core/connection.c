@@ -85,80 +85,100 @@ static connection_result_t execute_nmcli_connect(const char* command, const char
 
     int exit_code = pclose(fp);
 
-    if (exit_code == 0) {
-        // nmcli command succeeded, but we need to verify the connection actually activated
-        // Wait up to 15 seconds for connection to establish
-        sleep(2); // Give NetworkManager a moment to start activation
+    // Always verify the actual connection status, regardless of nmcli exit code
+    // This handles cases where nmcli returns error but connection succeeds
+    // Wait up to 15 seconds for connection to establish
+    sleep(2); // Give NetworkManager a moment to start activation
 
-        for (int i = 0; i < 13; i++) {
-            connection_status_t status = get_connection_status();
+    // Get WiFi interface for iw verification
+    char wifi_interface[MAX_STR_INTERFACE];
+    if (!iw_get_first_wifi_interface(wifi_interface, sizeof(wifi_interface))) {
+        safe_string_copy(wifi_interface, "wlan0", sizeof(wifi_interface));
+    }
 
-            // Check if we're connected to the target SSID
-            if (status.is_connected && strcmp(status.connected_ssid, ssid) == 0) {
+    for (int i = 0; i < 13; i++) {
+        connection_status_t status = get_connection_status();
+
+        // Check if we're connected to the target SSID via NetworkManager
+        if (status.is_connected && strcmp(status.connected_ssid, ssid) == 0) {
+            result.result = WTERM_SUCCESS;
+            result.connected = true;
+            snprintf(result.error_message, sizeof(result.error_message),
+                    "Successfully connected to %s", ssid);
+            return result;
+        }
+
+        // Fallback: Check kernel-level connection via iw
+        // This catches cases where NM reports failure but device is actually connected
+        char iw_ssid[MAX_STR_SSID];
+        if (iw_get_connected_ssid(wifi_interface, iw_ssid, sizeof(iw_ssid)) == WTERM_SUCCESS) {
+            if (strlen(iw_ssid) > 0 && strcmp(iw_ssid, ssid) == 0) {
                 result.result = WTERM_SUCCESS;
                 result.connected = true;
                 snprintf(result.error_message, sizeof(result.error_message),
                         "Successfully connected to %s", ssid);
                 return result;
             }
+        }
 
-            // If connection failed or was deactivated, stop waiting
-            // Check if the connection profile still exists and is in failed state
-            FILE *check_fp = popen("nmcli -t -f NAME,STATE connection show 2>&1", "r");
-            if (check_fp) {
-                char check_buffer[256];
-                bool connection_failed = false;
+        // If connection failed or was deactivated, stop waiting
+        // Check if the connection profile still exists and is in failed state
+        FILE *check_fp = popen("nmcli -t -f NAME,STATE connection show 2>&1", "r");
+        if (check_fp) {
+            char check_buffer[256];
+            bool connection_failed = false;
 
-                while (fgets(check_buffer, sizeof(check_buffer), check_fp)) {
-                    check_buffer[strcspn(check_buffer, "\n")] = '\0';
+            while (fgets(check_buffer, sizeof(check_buffer), check_fp)) {
+                check_buffer[strcspn(check_buffer, "\n")] = '\0';
 
-                    // Parse NAME:STATE
-                    char *colon = strchr(check_buffer, ':');
-                    if (colon) {
-                        *colon = '\0';
-                        const char *name = check_buffer;
-                        const char *state = colon + 1;
+                // Parse NAME:STATE
+                char *colon = strchr(check_buffer, ':');
+                if (colon) {
+                    *colon = '\0';
+                    const char *name = check_buffer;
+                    const char *state = colon + 1;
 
-                        // Check if this connection is for our SSID and in failed/deactivated state
-                        if (strstr(name, ssid) != NULL) {
-                            if (strcmp(state, "activated") == 0) {
-                                // Connection is activated, but might not be WiFi
-                                // Continue waiting for get_connection_status to confirm WiFi
-                                break;
-                            } else if (strstr(state, "deactivat") != NULL) {
-                                connection_failed = true;
-                                break;
-                            }
+                    // Check if this connection is for our SSID and in failed/deactivated state
+                    if (strstr(name, ssid) != NULL) {
+                        if (strcmp(state, "activated") == 0) {
+                            // Connection is activated, but might not be WiFi
+                            // Continue waiting for get_connection_status to confirm WiFi
+                            break;
+                        } else if (strstr(state, "deactivat") != NULL) {
+                            connection_failed = true;
+                            break;
                         }
                     }
                 }
-                pclose(check_fp);
-
-                if (connection_failed) {
-                    result.result = WTERM_ERROR_NETWORK;
-                    result.error_type = CONN_ERROR_AUTH_FAILED;
-                    snprintf(result.error_message, sizeof(result.error_message),
-                            "Connection to %s failed or deactivated", ssid);
-                    result.connected = false;
-                    return result;
-                }
             }
+            pclose(check_fp);
 
-            sleep(1);
+            if (connection_failed) {
+                result.result = WTERM_ERROR_NETWORK;
+                result.error_type = CONN_ERROR_AUTH_FAILED;
+                snprintf(result.error_message, sizeof(result.error_message),
+                        "Connection to %s failed or deactivated", ssid);
+                result.connected = false;
+                return result;
+            }
         }
 
-        // Timeout - connection didn't establish in time
+        sleep(1);
+    }
+
+    // Connection didn't establish in time
+    // If nmcli returned an error, use that message; otherwise report timeout
+    if (exit_code != 0 && strlen(error_output) > 0) {
+        result.result = WTERM_ERROR_NETWORK;
+        result.error_type = parse_nmcli_error(error_output);
+        safe_string_copy(result.error_message, error_output, sizeof(result.error_message));
+    } else {
         result.result = WTERM_ERROR_NETWORK;
         result.error_type = CONN_ERROR_TIMEOUT;
         snprintf(result.error_message, sizeof(result.error_message),
                 "Connection to %s timed out (check signal strength, password, or AP availability)", ssid);
-        result.connected = false;
-    } else {
-        result.result = WTERM_ERROR_NETWORK;
-        result.error_type = parse_nmcli_error(error_output);
-        safe_string_copy(result.error_message, error_output, sizeof(result.error_message));
-        result.connected = false;
     }
+    result.connected = false;
 
     return result;
 }
@@ -351,7 +371,7 @@ wterm_result_t disconnect_current_network(void) {
             NULL
         };
 
-        safe_exec_check("nmcli", args);
+        safe_exec_check_silent("nmcli", args);
         // Don't return yet - need to check for zombie connections
     }
 

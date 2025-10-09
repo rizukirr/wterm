@@ -1217,8 +1217,8 @@ bool tui_select_network(const network_list_t *networks,
     if (panel2_height < 8) panel2_height = 8;
 
     tui_panel_t panels[3] = {
-        {0, 0, width, panel1_height, "Available Networks (1/3)", true, 0, 0, filtered_networks.count},
-        {0, panel1_height, width, panel2_height, "Hotspots (2/3)", false, 0, 0, current_hotspots.count},
+        {0, 0, width, panel1_height, "Available Networks", true, 0, 0, filtered_networks.count},
+        {0, panel1_height, width, panel2_height, "Hotspots", false, 0, 0, current_hotspots.count},
         {0, panel1_height + panel2_height, width, keybindings_height, "Keybindings", false, 0, 0, 0}
     };
 

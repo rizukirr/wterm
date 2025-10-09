@@ -69,11 +69,6 @@ set(CONNECTION_SOURCES
     src/core/hotspot_ui.c
 )
 
-# Source files for fzf interface (legacy)
-set(FZF_UI_SOURCES
-    src/fzf_ui.c
-)
-
 # Source files for TUI interface (termbox2-based)
 set(TUI_SOURCES
     src/tui/tui_interface.c
@@ -111,22 +106,7 @@ target_include_directories(wterm_connection
 )
 target_link_libraries(wterm_connection wterm_string_utils)
 
-# Create fzf UI library (legacy)
-add_library(wterm_fzf_ui STATIC ${FZF_UI_SOURCES})
-target_include_directories(wterm_fzf_ui
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-    PRIVATE
-        src
-)
-target_link_libraries(wterm_fzf_ui
-    wterm_string_utils
-    wterm_network_scanner
-    wterm_connection
-)
-
-# Create TUI library (termbox2-based, replaces fzf)
+# Create TUI library (termbox2-based)
 add_library(wterm_tui STATIC ${TUI_SOURCES})
 target_include_directories(wterm_tui
     PUBLIC
@@ -147,8 +127,7 @@ set(WTERM_LIBRARIES
     wterm_network_scanner
     wterm_connection
     wterm_string_utils
-    wterm_tui          # New TUI library (primary)
-    wterm_fzf_ui       # Keep fzf as fallback
+    wterm_tui
 )
 
 target_link_libraries(wterm ${WTERM_LIBRARIES})
@@ -217,5 +196,5 @@ message(STATUS "  Build tests: ${BUILD_TESTS}")
 message(STATUS "  Build docs: ${BUILD_DOCS}")
 message(STATUS "  Enable coverage: ${ENABLE_COVERAGE}")
 message(STATUS "  Enable sanitizers: ${ENABLE_SANITIZERS}")
-message(STATUS "  Using termbox2 TUI: ON (fzf as fallback)")
+message(STATUS "  Using termbox2 TUI: ON")
 message(STATUS "")

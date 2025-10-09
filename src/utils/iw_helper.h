@@ -63,6 +63,15 @@ wterm_result_t iw_get_phy_index(const char *interface, int *phy_index);
 wterm_result_t iw_check_association(const char *interface, bool *is_associated);
 
 /**
+ * @brief Get the SSID of currently connected network at kernel level
+ * @param interface Interface name to check
+ * @param ssid Output buffer for SSID (empty string if not connected)
+ * @param ssid_size Size of SSID buffer
+ * @return WTERM_SUCCESS on success, error code otherwise
+ */
+wterm_result_t iw_get_connected_ssid(const char *interface, char *ssid, size_t ssid_size);
+
+/**
  * @brief Get link quality information for an interface
  * @param interface Interface name
  * @param signal_dbm Output: signal strength in dBm

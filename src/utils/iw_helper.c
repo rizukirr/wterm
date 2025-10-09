@@ -262,6 +262,63 @@ wterm_result_t iw_check_association(const char *interface, bool *is_associated) 
     return WTERM_SUCCESS;
 }
 
+wterm_result_t iw_get_connected_ssid(const char *interface, char *ssid, size_t ssid_size) {
+    if (!interface || !ssid || ssid_size == 0) {
+        return WTERM_ERROR_INVALID_INPUT;
+    }
+
+    // Initialize to empty string
+    ssid[0] = '\0';
+
+    if (!iw_is_available()) {
+        return WTERM_ERROR_GENERAL;
+    }
+
+    char command[256];
+    snprintf(command, sizeof(command), "iw dev %s link 2>&1", interface);
+
+    FILE *fp = popen(command, "r");
+    if (!fp) {
+        return WTERM_ERROR_NETWORK;
+    }
+
+    char buffer[256];
+    bool connected = false;
+
+    while (fgets(buffer, sizeof(buffer), fp)) {
+        // Check if connected
+        if (strstr(buffer, "Connected to")) {
+            connected = true;
+        }
+
+        // Look for SSID line (format: "\tSSID: NetworkName")
+        if (connected && strstr(buffer, "SSID:")) {
+            // Find the SSID value after "SSID: "
+            char *ssid_start = strstr(buffer, "SSID:");
+            if (ssid_start) {
+                ssid_start += 5; // Skip "SSID:"
+
+                // Skip leading whitespace
+                while (*ssid_start && (*ssid_start == ' ' || *ssid_start == '\t')) {
+                    ssid_start++;
+                }
+
+                // Copy SSID, removing trailing newline
+                size_t i = 0;
+                while (ssid_start[i] && ssid_start[i] != '\n' && ssid_start[i] != '\r' && i < ssid_size - 1) {
+                    ssid[i] = ssid_start[i];
+                    i++;
+                }
+                ssid[i] = '\0';
+                break;
+            }
+        }
+    }
+
+    pclose(fp);
+    return WTERM_SUCCESS;
+}
+
 wterm_result_t iw_get_link_quality(const char *interface, int *signal_dbm,
                                    int *tx_bitrate, int *rx_bitrate) {
     if (!interface || !signal_dbm || !tx_bitrate || !rx_bitrate) {

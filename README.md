@@ -14,14 +14,15 @@ A lightweight Terminal UI (TUI) base network management tool written in C with m
 ## Features
 
 - **Fast Network Scanning**: Native C implementation for quick WiFi network discovery
-- **Interactive Rescan**: Live network rescanning with smooth loading animations
-- **fzf Integration**: Modern terminal UI with fuzzy search and network selection
-- **WiFi Hotspot Management**: Create and manage WiFi hotspots (Access Points) using NetworkManager
+- **Pure C TUI**: termbox2-based interface with 3-panel layout (no external dependencies)
+- **WiFi Hotspot Management**: Create and manage WiFi hotspots with automatic NAT configuration
+- **Kernel-Level Verification**: Uses iw for reliable connection status detection
 - **Memory Safe**: Comprehensive bounds checking and safe string operations
 - **Well Tested**: Complete unit and integration test suite
 - **Modern Build System**: CMake with professional project structure
-- **Intuitive Interface**: Easy navigation with arrow keys, search, and selection
+- **Vim-Style Navigation**: j/k/h/l keys plus arrow keys for intuitive control
 - **Modular Design**: Clean separation of concerns for easy maintenance
+- **Auto NAT Setup**: Automatic internet sharing for hotspot clients
 
 ## Quick Start
 
@@ -35,16 +36,16 @@ wget https://github.com/your-repo/wterm/releases/download/vVERSION/wterm-x86_64-
 
 # Install runtime dependencies based on your distro
 # Arch Linux
-sudo pacman -S networkmanager iw fzf
+sudo pacman -S networkmanager iw iptables iproute2
 
 # Ubuntu/Debian
-sudo apt update && sudo apt install network-manager iw fzf
+sudo apt update && sudo apt install network-manager iw iptables iproute2
 
 # Fedora
-sudo dnf install NetworkManager iw fzf
+sudo dnf install NetworkManager iw iptables iproute2
 
 # openSUSE
-sudo zypper install NetworkManager iw fzf
+sudo zypper install NetworkManager iw iptables iproute2
 
 # Make executable and install
 chmod +x wterm-x86_64-linux
@@ -57,18 +58,24 @@ wterm --version
 **Requirements:**
 
 - Linux x86_64 with glibc 2.31+ (most modern distros from 2020+)
-- NetworkManager, iw, and fzf installed
+- NetworkManager, iw, iptables, and iproute2 installed
 
-### Option 2: Install Script from Source
+### Option 2: Install Script from Source (Arch Linux Only)
+
+> **⚠️ Note:** The install script is designed for **Arch Linux only** (uses pacman).
+> For other distros (Ubuntu, Fedora, openSUSE), use Option 1 (pre-built binary) or Option 3 (manual build).
 
 ```bash
-# Clone and install in one step
+# Clone and install in one step (Arch Linux)
 git clone <repository-url> wterm
 cd wterm
 sudo ./scripts/install.sh
 ```
 
-The install script automatically handles dependencies on Arch Linux.
+The install script automatically handles:
+- Dependency installation (NetworkManager, iw, iptables, iproute2)
+- Network manager conflict detection and switching
+- Build and system installation
 
 ### Option 3: Manual Build from Source
 
@@ -90,9 +97,10 @@ The install script automatically handles dependencies on Arch Linux.
 
 ### Runtime Dependencies
 
-- **NetworkManager** (`nmcli` command)
-- **iw** (for kernel-level WiFi checks and zombie connection detection)
-- **fzf** (for interactive network selection)
+- **NetworkManager** (`nmcli` command for WiFi management)
+- **iw** (for kernel-level WiFi verification)
+- **iptables** (for hotspot NAT configuration)
+- **iproute2** (`ip` command for network routing)
 - **Linux** system with glibc 2.31+ (works on most modern distros: Arch, Ubuntu 20.04+, Fedora, Debian, openSUSE)
 
 ### Auto-Installation
@@ -100,7 +108,7 @@ The install script automatically handles dependencies on Arch Linux.
 The install script can automatically install missing dependencies on Arch Linux:
 
 ```bash
-sudo pacman -S base-devel cmake networkmanager iw fzf
+sudo pacman -S base-devel cmake networkmanager iw iptables iproute2
 ```
 
 ## Build System
@@ -146,17 +154,25 @@ ctest --output-on-failure
 ### Interactive Mode (Default)
 
 ```bash
-# Launch interactive fzf interface
+# Launch interactive TUI interface
 wterm
 ```
 
 **Interface Controls:**
 
-- `↑↓` - Navigate networks
+- `j/k` or `↑↓` - Navigate networks
+- `h/l` or `Tab` - Switch between panels
 - `Enter` - Connect to selected network
-- `🔄 Rescan` - Refresh network list with loading animation
-- `Type` - Search/filter networks
+- `r` - Rescan networks
+- `d` - Disconnect from current network
+- `c` - Create new hotspot
+- `/` - Search/filter networks
 - `q/Esc` - Quit
+
+**3-Panel Layout:**
+1. **Available Networks** - WiFi networks with signal strength and security
+2. **Hotspots** - Configured hotspot profiles
+3. **Keybindings** - Quick reference for controls
 
 ### Command Line Options
 
@@ -289,12 +305,14 @@ This codebase prioritizes memory safety:
 ### System-wide Installation
 
 ```bash
-# Using install script (recommended)
+# Using install script (Arch Linux only)
 sudo ./scripts/install.sh
 
-# Manual installation after build
+# Manual installation after build (all distros)
 sudo cmake --install build/
 ```
+
+**Note:** The install script only works on Arch Linux. For other distributions, use manual installation or the pre-built binary.
 
 ### Package Creation
 
@@ -308,14 +326,14 @@ ls build/*.tar.gz build/*.deb
 
 ## Comparison with v1
 
-| Feature               | v1 (Shell)                  | v2 (C)                      |
+| Feature               | v1 (Shell)                  | v3 (C + TUI)                |
 | --------------------- | --------------------------- | --------------------------- |
 | **Performance**       | Slower (multiple processes) | Fast (single binary)        |
-| **User Interface**    | Basic text output           | Interactive fzf interface   |
-| **Network Selection** | Manual SSID typing          | Fuzzy search + selection    |
-| **Rescan**            | Manual restart required     | Live rescan with animations |
+| **User Interface**    | Basic text output           | termbox2 TUI (3-panel)      |
+| **Network Selection** | Manual SSID typing          | Interactive TUI navigation  |
+| **Hotspot Support**   | No                          | Full with NAT auto-config   |
 | **Memory Safety**     | Shell-safe                  | Explicit bounds checking    |
-| **Dependencies**      | `iwd`, `fzf`, `bash`        | `NetworkManager`, `iw`, `fzf` |
+| **Dependencies**      | `iwd`, `fzf`, `bash`        | `NetworkManager`, `iw`, `iptables` |
 | **Testing**           | Manual                      | Comprehensive test suite    |
 | **Build System**      | None                        | Professional CMake          |
 | **Bug Handling**      | Open network bug present    | Open network bug fixed      |

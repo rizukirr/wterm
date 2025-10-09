@@ -238,7 +238,8 @@ snprintf(command, sizeof(command), "nmcli device wifi connect %s", escaped_ssid)
 - `src/utils/input_sanitizer.c/h` - Input validation and sanitization
 - `src/core/network_backends/nmcli_backend.c` - Command execution
 - `src/core/connection.c` - Network connection handling
-- `src/fzf_ui.c` - Temporary file handling
+- `src/tui/tui_interface.c` - User input handling and TUI interactions
+- `src/core/hotspot_ui.c` - Password input and hotspot configuration
 
 ### Command Injection Prevention
 

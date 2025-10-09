@@ -60,18 +60,6 @@ error_info_t get_error_info(connection_error_t error, const char* network_name);
 bool is_wifi_enabled(void);
 
 /**
- * @brief Check if NetworkManager service is running
- * @return bool true if NetworkManager is running, false otherwise
- */
-bool is_networkmanager_running(void);
-
-/**
- * @brief Test internet connectivity
- * @return bool true if internet is accessible, false otherwise
- */
-bool test_internet_connectivity(void);
-
-/**
  * @brief Attempt to enable WiFi adapter
  * @return bool true if successful, false otherwise
  */

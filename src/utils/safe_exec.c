@@ -95,3 +95,38 @@ bool safe_exec_check(const char* program, char* const args[]) {
     int result = safe_exec_command(program, args);
     return (result == 0);
 }
+
+// cppcheck-suppress unusedFunction ; Exported API function
+bool safe_exec_check_silent(const char* program, char* const args[]) {
+    if (!program || !args) {
+        return false;
+    }
+
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        // Fork failed
+        return false;
+    }
+
+    if (pid == 0) {
+        // Child process - redirect stdout and stderr to /dev/null
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+
+        execvp(program, args);
+        _exit(127); // Command not found
+    }
+
+    // Parent process
+    int status;
+    if (waitpid(pid, &status, 0) < 0) {
+        return false;
+    }
+
+    return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}

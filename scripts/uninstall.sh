@@ -170,24 +170,6 @@ handle_networkmanager_removal() {
   esac
 }
 
-# Handle fzf removal
-handle_fzf_removal() {
-  if ! command -v fzf &>/dev/null; then
-    print_status "INFO" "fzf is not installed, skipping"
-    return 0
-  fi
-
-  echo
-  read -p "Do you want to remove fzf? [y/N]: " -r
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-    print_status "INFO" "Removing fzf..."
-    sudo pacman -Rs fzf
-    print_status "OK" "fzf removed"
-  else
-    print_status "INFO" "Keeping fzf installed"
-  fi
-}
-
 # Clean up installation state
 cleanup_installation_state() {
   print_status "INFO" "Cleaning up installation state..."
@@ -292,10 +274,6 @@ main() {
 
     # Handle NetworkManager removal
     handle_networkmanager_removal
-    echo
-
-    # Handle fzf removal
-    handle_fzf_removal
     echo
 
     # Clean up state files

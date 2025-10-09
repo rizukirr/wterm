@@ -141,7 +141,7 @@ check_network_manager_conflicts() {
         print_status "INFO" "Actions needed:"
         echo "  1. Disable $detected_manager"
         echo "  2. Install and enable NetworkManager"
-        echo "  3. Install fzf for interactive network selection"
+        echo "  3. Install required tools (iw, iptables, iproute2)"
         echo
         print_status "WARN" "This will change your system's network management!"
         echo
@@ -212,10 +212,10 @@ switch_to_networkmanager() {
         sudo systemctl disable --now systemd-resolved
     fi
 
-    # Install NetworkManager, iw, and fzf
-    print_status "INFO" "Installing NetworkManager, iw, and fzf..."
-    if ! sudo pacman -S --needed --noconfirm networkmanager iw fzf; then
-        print_status "ERROR" "Failed to install NetworkManager, iw, and fzf"
+    # Install NetworkManager and required tools
+    print_status "INFO" "Installing NetworkManager and required tools..."
+    if ! sudo pacman -S --needed --noconfirm networkmanager iw iptables iproute2; then
+        print_status "ERROR" "Failed to install required packages"
         return 1
     fi
 
@@ -258,26 +258,33 @@ check_network_manager_availability() {
         return 1
     fi
 
-    # Check for iw (kernel-level WiFi checks)
+    print_status "OK" "NetworkManager is working correctly"
+
+    # Check for required tools
     if ! command -v iw &> /dev/null; then
         missing_deps+=("iw")
     fi
 
-    # Check for fzf (interactive network selection)
-    if ! command -v fzf &> /dev/null; then
-        missing_deps+=("fzf")
+    if ! command -v iptables &> /dev/null; then
+        missing_deps+=("iptables")
     fi
 
-    print_status "OK" "NetworkManager is working correctly"
+    if ! command -v ip &> /dev/null; then
+        missing_deps+=("iproute2")
+    fi
 
     # Handle missing dependencies
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        print_status "INFO" "Missing optional dependencies: ${missing_deps[*]}"
+        print_status "WARN" "Missing required dependencies: ${missing_deps[*]}"
+        print_status "INFO" "Required for:"
         if [[ " ${missing_deps[*]} " =~ " iw " ]]; then
-            print_status "INFO" "iw enables better zombie connection detection"
+            echo "  • iw - Kernel-level WiFi verification"
         fi
-        if [[ " ${missing_deps[*]} " =~ " fzf " ]]; then
-            print_status "INFO" "fzf enables interactive network selection"
+        if [[ " ${missing_deps[*]} " =~ " iptables " ]]; then
+            echo "  • iptables - Hotspot NAT configuration"
+        fi
+        if [[ " ${missing_deps[*]} " =~ " iproute2 " ]]; then
+            echo "  • iproute2 - Network routing (ip command)"
         fi
         echo
         read -p "Do you want to install missing dependencies? [Y/n]: " -r
@@ -286,10 +293,11 @@ check_network_manager_availability() {
             sudo pacman -S --needed --noconfirm "${missing_deps[@]}"
             print_status "OK" "Dependencies installed"
         else
-            print_status "INFO" "Skipping optional dependencies"
+            print_status "ERROR" "Cannot proceed without required dependencies"
+            return 1
         fi
     else
-        print_status "OK" "All optional dependencies available"
+        print_status "OK" "All required dependencies available"
     fi
 
     return 0
@@ -376,14 +384,25 @@ verify_installation() {
 # Show post-installation information
 show_post_install_info() {
     echo
-    print_status "OK" "wterm v2 installation complete!"
+    print_status "OK" "wterm installation complete!"
     echo
     print_status "INFO" "Usage examples:"
-    echo "  wterm                # List available WiFi networks"
-    echo "  wterm --rescan       # Rescan and list networks"
-    echo "  wterm --help         # Show help information"
+    echo "  wterm                    # Interactive TUI network manager"
+    echo "  wterm hotspot            # Hotspot management menu"
+    echo "  wterm hotspot create     # Create new hotspot"
+    echo "  wterm --help             # Show help information"
     echo
-    print_status "INFO" "The original POCO F4 network display issue has been fixed!"
+    print_status "INFO" "Features:"
+    echo "  • TUI-based network selection (termbox2)"
+    echo "  • WiFi hotspot creation and management"
+    echo "  • Automatic NAT configuration for internet sharing"
+    echo "  • Kernel-level connection verification (iw)"
+    echo
+    print_status "INFO" "Required dependencies installed:"
+    echo "  • NetworkManager - WiFi management"
+    echo "  • iw - Kernel WiFi verification"
+    echo "  • iptables - Hotspot NAT"
+    echo "  • iproute2 - Network routing"
     echo
     print_status "INFO" "To uninstall:"
     echo "  sudo rm /usr/local/bin/wterm"
