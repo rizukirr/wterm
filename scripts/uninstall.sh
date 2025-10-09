@@ -85,15 +85,6 @@ remove_wterm_executable() {
   else
     print_status "INFO" "wterm executable not found at $wterm_path"
   fi
-
-  # Remove hotspot management script
-  local script_path="/usr/local/bin/hotspot_nm.sh"
-  if [[ -f "$script_path" ]]; then
-    sudo rm -f "$script_path"
-    print_status "OK" "Hotspot script removed from $script_path"
-  else
-    print_status "INFO" "Hotspot script not found at $script_path"
-  fi
 }
 
 # Restore previous network manager

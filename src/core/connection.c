@@ -9,6 +9,7 @@
 #include "../utils/string_utils.h"
 #include "../utils/input_sanitizer.h"
 #include "../utils/safe_exec.h"
+#include "../utils/iw_helper.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -333,6 +334,13 @@ connection_status_t get_connection_status(void) {
 wterm_result_t disconnect_current_network(void) {
     connection_status_t status = get_connection_status();
 
+    // Get the WiFi interface dynamically
+    char wifi_interface[MAX_STR_INTERFACE];
+    if (!iw_get_first_wifi_interface(wifi_interface, sizeof(wifi_interface))) {
+        // Fallback to wlan0 if detection fails
+        safe_string_copy(wifi_interface, "wlan0", sizeof(wifi_interface));
+    }
+
     // Try to disconnect active NetworkManager connection if one exists
     if (status.is_connected && status.connection_name[0] != '\0') {
         char* const args[] = {
@@ -365,7 +373,7 @@ wterm_result_t disconnect_current_network(void) {
             "nmcli",
             "device",
             "disconnect",
-            "wlan0",
+            (char*)wifi_interface,
             NULL
         };
         execvp("nmcli", device_args);
@@ -379,48 +387,37 @@ wterm_result_t disconnect_current_network(void) {
     // Verify disconnection by checking if any WiFi association remains at kernel level
     sleep(1); // Give NetworkManager time to process
 
-    FILE *fp = popen("iw dev wlan0 link 2>&1", "r");
-    if (fp) {
-        char buffer[256];
-        bool still_connected = false;
+    bool still_associated = false;
+    iw_check_association(wifi_interface, &still_associated);
 
-        while (fgets(buffer, sizeof(buffer), fp)) {
-            if (strstr(buffer, "Connected to") != NULL) {
-                still_connected = true;
-                break;
-            }
-        }
-        pclose(fp);
+    if (still_associated) {
+        // Zombie connection detected - force device reset
+        // Set device unmanaged then managed again to force cleanup
+        char* const unmanage_args[] = {
+            "nmcli",
+            "device",
+            "set",
+            (char*)wifi_interface,
+            "managed",
+            "no",
+            NULL
+        };
+        safe_exec_check("nmcli", unmanage_args);
 
-        if (still_connected) {
-            // Zombie connection detected - force device reset
-            // Set device unmanaged then managed again to force cleanup
-            char* const unmanage_args[] = {
-                "nmcli",
-                "device",
-                "set",
-                "wlan0",
-                "managed",
-                "no",
-                NULL
-            };
-            safe_exec_check("nmcli", unmanage_args);
+        sleep(1);
 
-            sleep(1);
+        char* const manage_args[] = {
+            "nmcli",
+            "device",
+            "set",
+            (char*)wifi_interface,
+            "managed",
+            "yes",
+            NULL
+        };
+        safe_exec_check("nmcli", manage_args);
 
-            char* const manage_args[] = {
-                "nmcli",
-                "device",
-                "set",
-                "wlan0",
-                "managed",
-                "yes",
-                NULL
-            };
-            safe_exec_check("nmcli", manage_args);
-
-            sleep(1);
-        }
+        sleep(1);
     }
 
     // Final verification
@@ -430,22 +427,9 @@ wterm_result_t disconnect_current_network(void) {
     }
 
     // Check kernel level one more time
-    fp = popen("iw dev wlan0 link 2>&1", "r");
-    if (fp) {
-        char buffer[256];
-        bool still_connected = false;
-
-        while (fgets(buffer, sizeof(buffer), fp)) {
-            if (strstr(buffer, "Connected to") != NULL) {
-                still_connected = true;
-                break;
-            }
-        }
-        pclose(fp);
-
-        if (still_connected) {
-            return WTERM_ERROR_NETWORK; // Kernel-level association still exists
-        }
+    iw_check_association(wifi_interface, &still_associated);
+    if (still_associated) {
+        return WTERM_ERROR_NETWORK; // Kernel-level association still exists
     }
 
     return WTERM_SUCCESS;

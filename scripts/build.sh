@@ -43,6 +43,8 @@ show_usage() {
     echo "  debug       Build debug version"
     echo "  release     Build release version (default)"
     echo "  test        Build and run tests"
+    echo "  ci-check    Run all CI checks (comprehensive)"
+    echo "  ci-quick    Quick pre-commit check (build + tests)"
     echo "  install     Install to system"
     echo "  package     Create installation package"
     echo "  all         Clean, build, and test"
@@ -58,6 +60,7 @@ show_usage() {
     echo "  $0 release              # Build release version"
     echo "  $0 debug --sanitize     # Build debug with sanitizers"
     echo "  $0 test --verbose       # Run tests with verbose output"
+    echo "  $0 ci-check             # Run comprehensive CI checks"
     echo "  $0 all --jobs 4         # Clean, build, test with 4 jobs"
 }
 
@@ -70,7 +73,7 @@ COVERAGE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        clean|debug|release|test|install|package|all|help)
+        clean|debug|release|test|ci-check|ci-quick|install|package|all|help)
             COMMAND="$1"
             shift
             ;;
@@ -194,6 +197,36 @@ create_package() {
     print_status "OK" "Package created in $BUILD_DIR"
 }
 
+# Function to run CI checks
+run_ci_check() {
+    print_status "INFO" "Running comprehensive CI checks..."
+
+    cd "$BUILD_DIR"
+    cmake --build . --target ci-check $CMAKE_VERBOSE
+
+    if [ $? -eq 0 ]; then
+        print_status "OK" "All CI checks passed"
+    else
+        print_status "ERROR" "Some CI checks failed"
+        exit 1
+    fi
+}
+
+# Function to run quick CI checks
+run_ci_quick() {
+    print_status "INFO" "Running quick CI checks (pre-commit)..."
+
+    cd "$BUILD_DIR"
+    cmake --build . --target ci-quick $CMAKE_VERBOSE
+
+    if [ $? -eq 0 ]; then
+        print_status "OK" "Quick CI checks passed"
+    else
+        print_status "ERROR" "Quick CI checks failed"
+        exit 1
+    fi
+}
+
 # Main command processing
 case $COMMAND in
     help)
@@ -216,6 +249,20 @@ case $COMMAND in
         fi
         build_project
         run_tests
+        ;;
+    ci-check)
+        if [[ ! -d "$BUILD_DIR" ]]; then
+            configure_cmake "Release"
+            build_project
+        fi
+        run_ci_check
+        ;;
+    ci-quick)
+        if [[ ! -d "$BUILD_DIR" ]]; then
+            configure_cmake "Debug"
+            build_project
+        fi
+        run_ci_quick
         ;;
     install)
         if [[ ! -f "$BUILD_DIR/bin/wterm" ]]; then

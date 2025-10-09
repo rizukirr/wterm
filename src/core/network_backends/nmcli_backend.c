@@ -7,6 +7,7 @@
 #include "../../utils/input_sanitizer.h"
 #include "../../utils/safe_exec.h"
 #include "../../utils/string_utils.h"
+#include "../../utils/iw_helper.h"
 #include "../network_scanner.h"
 #include "backend_interface.h"
 #include <stdio.h>
@@ -701,13 +702,13 @@ static wterm_result_t nmcli_check_interface_ap_support(const char *interface,
 
   *supports_ap = false;
 
-  // Check if interface supports AP mode by checking nmcli device capabilities
-  // This is safer than using shell commands with grep
+  // First verify this is a WiFi interface via nmcli
   FILE *fp = popen("nmcli -t -f DEVICE,TYPE device status", "r");
   if (!fp) {
     return WTERM_ERROR_NETWORK;
   }
 
+  bool is_wifi = false;
   char buffer[256];
   while (fgets(buffer, sizeof(buffer), fp)) {
     buffer[strcspn(buffer, "\n")] = '\0';
@@ -717,13 +718,23 @@ static wterm_result_t nmcli_check_interface_ap_support(const char *interface,
 
     if (device_field && type_field && strcmp(device_field, interface) == 0 &&
         strcmp(type_field, "wifi") == 0) {
-      // WiFi devices generally support AP mode
-      *supports_ap = true;
+      is_wifi = true;
       break;
     }
   }
-
   pclose(fp);
+
+  if (!is_wifi) {
+    return WTERM_ERROR_GENERAL; // Not a WiFi interface
+  }
+
+  // Use iw to accurately check AP mode capability
+  if (iw_is_available()) {
+    return iw_check_ap_mode_support(interface, supports_ap);
+  }
+
+  // Fallback: assume WiFi interfaces support AP mode (less accurate)
+  *supports_ap = true;
   return WTERM_SUCCESS;
 }
 

@@ -180,3 +180,29 @@ const char *hotspot_share_method_to_string(hotspot_share_method_t share_method);
  */
 hotspot_share_method_t
 hotspot_share_method_from_string(const char *method_string);
+
+/**
+ * @brief Get list of available WiFi interfaces with their capabilities
+ * @param interfaces Output array of interface information
+ * @param max_count Maximum number of interfaces to return
+ * @param count Output number of interfaces found
+ * @return WTERM_SUCCESS on success, error code on failure
+ */
+wterm_result_t hotspot_get_interface_list(interface_info_t *interfaces,
+                                          int max_count, int *count);
+
+/**
+ * @brief Get available frequency band options
+ * @param bands Output array of band options
+ * @param count Output number of band options
+ * @return WTERM_SUCCESS on success, error code on failure
+ */
+wterm_result_t hotspot_get_band_options(band_option_t *bands, int *count);
+
+/**
+ * @brief Get available security options
+ * @param options Output array of security options
+ * @param count Output number of security options
+ * @return WTERM_SUCCESS on success, error code on failure
+ */
+wterm_result_t hotspot_get_security_options(security_option_t *options, int *count);

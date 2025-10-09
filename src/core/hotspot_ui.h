@@ -13,14 +13,15 @@
  * @brief Run interactive hotspot management menu
  *
  * Displays main menu with options to create, start, stop, delete hotspots.
- * Uses fzf for menu selection and delegates operations to hotspot_nm.sh script.
- * Automatically elevates privileges with sudo if not running as root.
+ * Uses text-based selection interface for menu navigation.
+ * Can optionally skip privilege elevation when called from within wterm.
  *
  * @param argc Argument count from main()
  * @param argv Argument vector from main()
+ * @param skip_elevation If true, skip sudo re-execution (for internal calls)
  * @return 0 on success, non-zero on error
  */
-int hotspot_interactive_menu(int argc, char *argv[]);
+int hotspot_interactive_menu(int argc, char *argv[], bool skip_elevation);
 
 /**
  * @brief Select a hotspot from available hotspots using fzf

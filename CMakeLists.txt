@@ -40,16 +40,18 @@ if(ENABLE_COVERAGE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} --coverage")
 endif()
 
-# No external UI libraries needed - using fzf
+# UI libraries: migrating from fzf to termbox2 (native TUI)
 
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/external)
 
 # Source files for string utilities library
 set(STRING_UTILS_SOURCES
     src/utils/string_utils.c
     src/utils/input_sanitizer.c
     src/utils/safe_exec.c
+    src/utils/iw_helper.c
 )
 
 # Source files for network scanner library
@@ -67,9 +69,14 @@ set(CONNECTION_SOURCES
     src/core/hotspot_ui.c
 )
 
-# Source files for fzf interface
+# Source files for fzf interface (legacy)
 set(FZF_UI_SOURCES
     src/fzf_ui.c
+)
+
+# Source files for TUI interface (termbox2-based)
+set(TUI_SOURCES
+    src/tui/tui_interface.c
 )
 
 # Create string utilities library
@@ -104,7 +111,7 @@ target_include_directories(wterm_connection
 )
 target_link_libraries(wterm_connection wterm_string_utils)
 
-# Create fzf UI library
+# Create fzf UI library (legacy)
 add_library(wterm_fzf_ui STATIC ${FZF_UI_SOURCES})
 target_include_directories(wterm_fzf_ui
     PUBLIC
@@ -119,13 +126,29 @@ target_link_libraries(wterm_fzf_ui
     wterm_connection
 )
 
+# Create TUI library (termbox2-based, replaces fzf)
+add_library(wterm_tui STATIC ${TUI_SOURCES})
+target_include_directories(wterm_tui
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        src/tui
+)
+target_link_libraries(wterm_tui
+    wterm_string_utils
+    wterm_network_scanner
+    wterm_connection
+)
+
 # Create main executable
 add_executable(wterm src/main.c)
 set(WTERM_LIBRARIES
     wterm_network_scanner
     wterm_connection
     wterm_string_utils
-    wterm_fzf_ui
+    wterm_tui          # New TUI library (primary)
+    wterm_fzf_ui       # Keep fzf as fallback
 )
 
 target_link_libraries(wterm ${WTERM_LIBRARIES})
@@ -136,14 +159,15 @@ set_target_properties(wterm PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
+# TUI test executable (termbox2 integration test)
+add_executable(tui_test src/tui/tui_test.c)
+set_target_properties(tui_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
 # Installation rules
 install(TARGETS wterm
     RUNTIME DESTINATION bin
-)
-
-# Install hotspot management script
-install(PROGRAMS scripts/hotspot_nm.sh
-    DESTINATION bin
 )
 
 install(DIRECTORY include/
@@ -193,5 +217,5 @@ message(STATUS "  Build tests: ${BUILD_TESTS}")
 message(STATUS "  Build docs: ${BUILD_DOCS}")
 message(STATUS "  Enable coverage: ${ENABLE_COVERAGE}")
 message(STATUS "  Enable sanitizers: ${ENABLE_SANITIZERS}")
-message(STATUS "  Using fzf interface: ON")
+message(STATUS "  Using termbox2 TUI: ON (fzf as fallback)")
 message(STATUS "")
