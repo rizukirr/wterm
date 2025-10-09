@@ -88,4 +88,12 @@ wterm_result_t iw_get_link_quality(const char *interface, int *signal_dbm,
  */
 bool iw_is_available(void);
 
+/**
+ * @brief Check if an interface has an IPv4 address assigned
+ * @param interface Interface name to check
+ * @param has_ip Output: true if interface has IPv4 address
+ * @return WTERM_SUCCESS on success, error code otherwise
+ */
+wterm_result_t interface_has_ip_address(const char *interface, bool *has_ip);
+
 #endif // IW_HELPER_H

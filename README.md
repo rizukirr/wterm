@@ -9,7 +9,7 @@ A lightweight Terminal UI (TUI) base network management tool written in C with m
 ## Screenshot
 
 ![Menu](./assets/wterm-menu.png)
-![Hotspot Menu](./assets/wterm-menu.png)
+![Hotspot Menu](./assets/wterm-hotspot-menu.png)
 
 ## Features
 
@@ -32,7 +32,7 @@ Download the latest release binary from [GitHub Releases](https://github.com/you
 
 ```bash
 # Download the binary (replace VERSION with actual version)
-wget https://github.com/your-repo/wterm/releases/download/vVERSION/wterm-x86_64-linux
+wget https://github.com/rizukirr/wterm/releases/download/vVERSION/wterm-x86_64-linux
 
 # Install runtime dependencies based on your distro
 # Arch Linux
@@ -67,12 +67,13 @@ wterm --version
 
 ```bash
 # Clone and install in one step (Arch Linux)
-git clone <repository-url> wterm
+git clone https://github.com/rizukirr/wterm.git wterm
 cd wterm
 sudo ./scripts/install.sh
 ```
 
 The install script automatically handles:
+
 - Dependency installation (NetworkManager, iw, iptables, iproute2)
 - Network manager conflict detection and switching
 - Build and system installation
@@ -170,6 +171,7 @@ wterm
 - `q/Esc` - Quit
 
 **3-Panel Layout:**
+
 1. **Available Networks** - WiFi networks with signal strength and security
 2. **Hotspots** - Configured hotspot profiles
 3. **Keybindings** - Quick reference for controls
@@ -326,18 +328,18 @@ ls build/*.tar.gz build/*.deb
 
 ## Comparison with v1
 
-| Feature               | v1 (Shell)                  | v3 (C + TUI)                |
-| --------------------- | --------------------------- | --------------------------- |
-| **Performance**       | Slower (multiple processes) | Fast (single binary)        |
-| **User Interface**    | Basic text output           | termbox2 TUI (3-panel)      |
-| **Network Selection** | Manual SSID typing          | Interactive TUI navigation  |
-| **Hotspot Support**   | No                          | Full with NAT auto-config   |
-| **Memory Safety**     | Shell-safe                  | Explicit bounds checking    |
+| Feature               | v1 (Shell)                  | v3 (C + TUI)                       |
+| --------------------- | --------------------------- | ---------------------------------- |
+| **Performance**       | Slower (multiple processes) | Fast (single binary)               |
+| **User Interface**    | Basic text output           | termbox2 TUI (3-panel)             |
+| **Network Selection** | Manual SSID typing          | Interactive TUI navigation         |
+| **Hotspot Support**   | No                          | Full with NAT auto-config          |
+| **Memory Safety**     | Shell-safe                  | Explicit bounds checking           |
 | **Dependencies**      | `iwd`, `fzf`, `bash`        | `NetworkManager`, `iw`, `iptables` |
-| **Testing**           | Manual                      | Comprehensive test suite    |
-| **Build System**      | None                        | Professional CMake          |
-| **Bug Handling**      | Open network bug present    | Open network bug fixed      |
-| **Maintainability**   | Script-based                | Modular C architecture      |
+| **Testing**           | Manual                      | Comprehensive test suite           |
+| **Build System**      | None                        | Professional CMake                 |
+| **Bug Handling**      | Open network bug present    | Open network bug fixed             |
+| **Maintainability**   | Script-based                | Modular C architecture             |
 
 ## Contributing
 

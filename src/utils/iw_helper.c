@@ -383,3 +383,33 @@ wterm_result_t iw_get_link_quality(const char *interface, int *signal_dbm,
     pclose(fp);
     return found_connection ? WTERM_SUCCESS : WTERM_ERROR_GENERAL;
 }
+
+wterm_result_t interface_has_ip_address(const char *interface, bool *has_ip) {
+    if (!interface || !has_ip) {
+        return WTERM_ERROR_INVALID_INPUT;
+    }
+
+    *has_ip = false;
+
+    // Build command: ip addr show <interface>
+    char command[256];
+    snprintf(command, sizeof(command), "ip addr show %s 2>/dev/null", interface);
+
+    FILE *fp = popen(command, "r");
+    if (!fp) {
+        return WTERM_ERROR_GENERAL;
+    }
+
+    char buffer[512];
+    while (fgets(buffer, sizeof(buffer), fp)) {
+        // Look for "inet " (IPv4 address line)
+        // Example: "    inet 192.168.1.100/24 brd 192.168.1.255 scope global dynamic wlan0"
+        if (strstr(buffer, "inet ") != NULL) {
+            *has_ip = true;
+            break;
+        }
+    }
+
+    pclose(fp);
+    return WTERM_SUCCESS;
+}

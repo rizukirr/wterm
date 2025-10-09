@@ -108,16 +108,22 @@ static connection_result_t execute_nmcli_connect(const char* command, const char
             return result;
         }
 
-        // Fallback: Check kernel-level connection via iw
+        // Fallback: Check kernel-level connection via iw AND verify IP assignment
         // This catches cases where NM reports failure but device is actually connected
+        // However, we also need to ensure DHCP completed and IP was assigned
         char iw_ssid[MAX_STR_SSID];
         if (iw_get_connected_ssid(wifi_interface, iw_ssid, sizeof(iw_ssid)) == WTERM_SUCCESS) {
             if (strlen(iw_ssid) > 0 && strcmp(iw_ssid, ssid) == 0) {
-                result.result = WTERM_SUCCESS;
-                result.connected = true;
-                snprintf(result.error_message, sizeof(result.error_message),
-                        "Successfully connected to %s", ssid);
-                return result;
+                // WiFi is associated, now check if IP address is assigned
+                bool has_ip = false;
+                if (interface_has_ip_address(wifi_interface, &has_ip) == WTERM_SUCCESS && has_ip) {
+                    result.result = WTERM_SUCCESS;
+                    result.connected = true;
+                    snprintf(result.error_message, sizeof(result.error_message),
+                            "Successfully connected to %s", ssid);
+                    return result;
+                }
+                // WiFi associated but no IP yet, keep waiting
             }
         }
 
