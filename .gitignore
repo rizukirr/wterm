@@ -78,4 +78,5 @@ linux-wifi-hotspot/
 /tmp/wterm_hotspots/
 /tmp/wterm_hotspot_runtime/
 /tmp/create_ap.*/
+SECURITY_FIXES.md
 ruleset
