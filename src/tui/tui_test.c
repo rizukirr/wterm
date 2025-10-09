@@ -86,30 +86,6 @@ static void clear_panel_content(panel_t *panel) {
     }
 }
 
-// Generate signal bars based on percentage
-static void get_signal_bars(int signal, char *buf, size_t size) {
-    if (size < 6) return;
-
-    int bars = (signal / 25);  // 0-4 bars
-    if (bars > 4) bars = 4;
-
-    buf[0] = '[';
-    buf[1] = (bars >= 1) ? 0xE2 : ' ';  // █
-    buf[2] = (bars >= 1) ? 0x96 : ' ';
-    buf[3] = (bars >= 1) ? 0x88 : ' ';
-    buf[4] = (bars >= 2) ? 0xE2 : ' ';
-    buf[5] = (bars >= 2) ? 0x96 : ' ';
-    buf[6] = (bars >= 2) ? 0x88 : ' ';
-    buf[7] = (bars >= 3) ? 0xE2 : ' ';
-    buf[8] = (bars >= 3) ? 0x96 : ' ';
-    buf[9] = (bars >= 3) ? 0x88 : ' ';
-    buf[10] = (bars >= 4) ? 0xE2 : ' ';
-    buf[11] = (bars >= 4) ? 0x96 : ' ';
-    buf[12] = (bars >= 4) ? 0x88 : ' ';
-    buf[13] = ']';
-    buf[14] = '\0';
-}
-
 // Render signal bar (simplified ASCII version)
 static void render_signal_bar(int x, int y, int signal, uintptr_t fg, uintptr_t bg) {
     int bars = (signal / 25);  // 0-4 bars
