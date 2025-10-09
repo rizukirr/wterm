@@ -166,56 +166,6 @@ bool is_wifi_enabled(void) {
     return enabled;
 }
 
-bool is_networkmanager_running(void) {
-    char* const args[] = {
-        "systemctl",
-        "is-active",
-        "--quiet",
-        "NetworkManager",
-        NULL
-    };
-    return safe_exec_check("systemctl", args);
-}
-
-bool test_internet_connectivity(void) {
-    // Test with a quick ping to Google DNS
-    char* const args[] = {
-        "ping",
-        "-c",
-        "1",
-        "-W",
-        "2",
-        "8.8.8.8",
-        NULL
-    };
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        return false;
-    }
-
-    if (pid == 0) {
-        // Child process - redirect output to /dev/null
-        int devnull = open("/dev/null", O_WRONLY);
-        if (devnull >= 0) {
-            dup2(devnull, STDOUT_FILENO);
-            dup2(devnull, STDERR_FILENO);
-            close(devnull);
-        }
-
-        execvp("ping", args);
-        _exit(127);
-    }
-
-    // Parent process
-    int status;
-    if (waitpid(pid, &status, 0) < 0) {
-        return false;
-    }
-
-    return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
-}
-
 bool auto_enable_wifi(void) {
     if (is_wifi_enabled()) {
         return true; // Already enabled

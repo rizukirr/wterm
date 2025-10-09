@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.12)
 
 project(wterm
-    VERSION 3.0.1
+    VERSION 3.1.0
     DESCRIPTION "wterm TUI Network Manager"
     LANGUAGES C
 )
@@ -40,16 +40,18 @@ if(ENABLE_COVERAGE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} --coverage")
 endif()
 
-# No external UI libraries needed - using fzf
+# UI libraries: migrating from fzf to termbox2 (native TUI)
 
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/external)
 
 # Source files for string utilities library
 set(STRING_UTILS_SOURCES
     src/utils/string_utils.c
     src/utils/input_sanitizer.c
     src/utils/safe_exec.c
+    src/utils/iw_helper.c
 )
 
 # Source files for network scanner library
@@ -67,9 +69,9 @@ set(CONNECTION_SOURCES
     src/core/hotspot_ui.c
 )
 
-# Source files for fzf interface
-set(FZF_UI_SOURCES
-    src/fzf_ui.c
+# Source files for TUI interface (termbox2-based)
+set(TUI_SOURCES
+    src/tui/tui_interface.c
 )
 
 # Create string utilities library
@@ -104,16 +106,16 @@ target_include_directories(wterm_connection
 )
 target_link_libraries(wterm_connection wterm_string_utils)
 
-# Create fzf UI library
-add_library(wterm_fzf_ui STATIC ${FZF_UI_SOURCES})
-target_include_directories(wterm_fzf_ui
+# Create TUI library (termbox2-based)
+add_library(wterm_tui STATIC ${TUI_SOURCES})
+target_include_directories(wterm_tui
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
-        src
+        src/tui
 )
-target_link_libraries(wterm_fzf_ui
+target_link_libraries(wterm_tui
     wterm_string_utils
     wterm_network_scanner
     wterm_connection
@@ -125,7 +127,7 @@ set(WTERM_LIBRARIES
     wterm_network_scanner
     wterm_connection
     wterm_string_utils
-    wterm_fzf_ui
+    wterm_tui
 )
 
 target_link_libraries(wterm ${WTERM_LIBRARIES})
@@ -133,6 +135,12 @@ target_link_libraries(wterm ${WTERM_LIBRARIES})
 # Set executable properties
 set_target_properties(wterm PROPERTIES
     OUTPUT_NAME wterm
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# TUI test executable (termbox2 integration test)
+add_executable(tui_test src/tui/tui_test.c)
+set_target_properties(tui_test PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
@@ -188,5 +196,5 @@ message(STATUS "  Build tests: ${BUILD_TESTS}")
 message(STATUS "  Build docs: ${BUILD_DOCS}")
 message(STATUS "  Enable coverage: ${ENABLE_COVERAGE}")
 message(STATUS "  Enable sanitizers: ${ENABLE_SANITIZERS}")
-message(STATUS "  Using fzf interface: ON")
+message(STATUS "  Using termbox2 TUI: ON")
 message(STATUS "")

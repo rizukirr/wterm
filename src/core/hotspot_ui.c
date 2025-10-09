@@ -1,80 +1,68 @@
 /**
  * @file hotspot_ui.c
- * @brief Interactive hotspot management UI implementation
+ * @brief Interactive hotspot management UI implementation (Pure C - No bash scripts)
  */
 
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
 #include "hotspot_ui.h"
+#include "hotspot_manager.h"
 #include "../../include/wterm/common.h"
+#include "../utils/safe_exec.h"
+#include "../utils/input_sanitizer.h"
+#include "../utils/string_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>  // For explicit_bzero
 #include <unistd.h>
 #include <termios.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <errno.h>
 
-#define SCRIPT_PATH "./scripts/hotspot_nm.sh"
 #define MAX_BUFFER 1024
 #define MAX_COMMAND 2048
 #define HOTSPOT_PASSWORD_MAX 64
-#define HOTSPOT_INTERFACE_MAX 32
-#define HOTSPOT_BAND_MAX 16
-#define HOTSPOT_ACTION_MAX 64
 
-// Helper function to run script command and capture output
-static bool run_script_command(const char* args, char* output, size_t output_size) {
-    char command[MAX_COMMAND];
-    snprintf(command, sizeof(command), "%s %s 2>&1", SCRIPT_PATH, args);
-
-    FILE* pipe = popen(command, "r");
-    if (!pipe) {
-        return false;
-    }
-
-    if (output && output_size > 0) {
-        size_t total_read = 0;
-        while (fgets(output + total_read, output_size - total_read, pipe) != NULL) {
-            total_read = strlen(output);
-            if (total_read >= output_size - 1) break;
-        }
-    }
-
-    int result = pclose(pipe);
-    return (result == 0);
+// Helper to check if running as root
+static bool is_root(void) {
+    return (geteuid() == 0);
 }
 
-// Helper function to get fzf selection from script output
-static bool get_fzf_selection(const char* script_args, const char* prompt,
-                             const char* header, char* selected, size_t selected_size) {
-    char command[MAX_COMMAND];
-
-    // Build command: script output | fzf
-    snprintf(command, sizeof(command),
-             "%s %s 2>/dev/null | fzf --border=rounded --prompt='%s' "
-             "--header='%s' --height=40%% --reverse --ansi",
-             SCRIPT_PATH, script_args, prompt, header);
-
-    FILE* pipe = popen(command, "r");
-    if (!pipe) {
-        return false;
+// Re-execute with sudo if not root
+static void ensure_root_privileges(int argc, char *argv[]) {
+    if (is_root()) {
+        return; // Already root
     }
 
-    bool got_selection = false;
-    if (fgets(selected, selected_size, pipe) != NULL) {
-        // Remove newline
-        selected[strcspn(selected, "\n")] = 0;
-        got_selection = (strlen(selected) > 0);
+    // Build command to re-execute with sudo
+    size_t args_size = argc + 2; // sudo + program + args + NULL
+    char **sudo_args = malloc(sizeof(char*) * args_size);
+    if (!sudo_args) {
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(1);
     }
 
-    pclose(pipe);
-    return got_selection;
+    sudo_args[0] = "sudo";
+    for (int i = 0; i < argc; i++) {
+        sudo_args[i + 1] = argv[i];
+    }
+    sudo_args[args_size - 1] = NULL;
+
+    fprintf(stdout, "Hotspot management requires root privileges. Re-executing with sudo...\n");
+    execvp("sudo", sudo_args);
+
+    // If we get here, exec failed
+    fprintf(stderr, "Failed to execute sudo: %s\n", strerror(errno));
+    free(sudo_args);
+    exit(1);
 }
 
 // Helper to get user confirmation
 static bool get_confirmation(const char* message) {
-    printf("%s (y/N): ", message);
+    printf("%s [y/N]: ", message);
     fflush(stdout);
 
     char response[10];
@@ -87,309 +75,467 @@ static bool get_confirmation(const char* message) {
 
 // Helper to get password input (hidden)
 static bool get_password_input(const char* prompt, char* password, size_t size) {
+    if (!password || size == 0) {
+        return false;
+    }
+
     struct termios old_term, new_term;
-
-    // Get current terminal settings
-    if (tcgetattr(STDIN_FILENO, &old_term) == -1) {
-        return false;  // Can't get terminal state
-    }
-
-    // Disable echo
-    new_term = old_term;
-    new_term.c_lflag &= ~ECHO;
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &new_term) == -1) {
-        return false;  // Can't disable echo
-    }
 
     printf("%s: ", prompt);
     fflush(stdout);
 
-    bool success = (fgets(password, size, stdin) != NULL);
-    if (success) {
-        password[strcspn(password, "\n")] = 0;  // Remove newline
-    }
-
-    // Re-enable echo (always attempt, even on error)
-    tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
-    printf("\n");
-
-    return success && (strlen(password) > 0);
-}
-
-bool hotspot_select(const char* filter, char* selected_name, size_t buffer_size) {
-    char selection[MAX_BUFFER];
-    (void)filter;  // TODO: Implement filtering by status
-
-    if (!get_fzf_selection("interactive list-hotspots", "Select Hotspot > ",
-                          "Arrow keys to navigate | Enter to select | ESC to cancel",
-                          selection, sizeof(selection))) {
+    // Disable echo
+    if (tcgetattr(STDIN_FILENO, &old_term) != 0) {
         return false;
     }
 
-    // Parse format: name\tstatus\tdetails
-    char* tab_pos = strchr(selection, '\t');
-    if (tab_pos) {
-        size_t name_len = tab_pos - selection;
-        if (name_len < buffer_size) {
-            strncpy(selected_name, selection, name_len);
-            selected_name[name_len] = '\0';
-            return true;
-        }
+    new_term = old_term;
+    new_term.c_lflag &= ~ECHO;
+
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &new_term) != 0) {
+        return false;
     }
 
-    return false;
+    // Read password
+    bool success = (fgets(password, size, stdin) != NULL);
+    printf("\n");
+
+    // Restore echo
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
+
+    if (success) {
+        password[strcspn(password, "\n")] = '\0'; // Remove newline
+    }
+
+    return success;
 }
 
-int hotspot_create_wizard(void) {
-    char name[MAX_STR_SSID];
-    char password[HOTSPOT_PASSWORD_MAX];
-    char band[HOTSPOT_BAND_MAX];
-    char interface[HOTSPOT_INTERFACE_MAX];
+// Select a hotspot from list using simple text menu
+bool hotspot_select(const char* filter, char* selected_name, size_t buffer_size) {
+    (void)filter; // Reserved for future filtering support
 
+    if (!selected_name || buffer_size == 0) {
+        return false;
+    }
+
+    // Get hotspot list from C function
+    hotspot_list_t list;
+    if (hotspot_list_configs(&list) != WTERM_SUCCESS || list.count == 0) {
+        fprintf(stderr, "No hotspots configured\n");
+        return false;
+    }
+
+    // Display hotspots
+    printf("\nAvailable hotspots:\n");
+    for (int i = 0; i < list.count; i++) {
+        printf("  %d. %s\n", i + 1, list.hotspots[i].name);
+    }
+
+    printf("\nSelect hotspot [1-%d] (0 to cancel): ", list.count);
+    fflush(stdout);
+
+    int choice;
+    if (scanf("%d", &choice) != 1) {
+        fprintf(stderr, "Invalid input\n");
+        return false;
+    }
+    getchar(); // Consume newline
+
+    if (choice == 0) {
+        return false; // Cancelled
+    }
+
+    if (choice < 1 || choice > list.count) {
+        fprintf(stderr, "Invalid selection\n");
+        return false;
+    }
+
+    safe_string_copy(selected_name, list.hotspots[choice - 1].name, buffer_size);
+    return true;
+}
+
+// Create hotspot wizard
+int hotspot_create_wizard(void) {
     printf("\n=== Create New Hotspot ===\n\n");
 
-    // Step 1: Get hotspot name
+    hotspot_config_t config;
+    hotspot_get_default_config(&config);
+
+    // Step 1: Hotspot name
+    char name[MAX_STR_SSID];
     printf("Hotspot name: ");
     fflush(stdout);
-    if (fgets(name, sizeof(name), stdin) == NULL || strlen(name) <= 1) {
-        printf("Cancelled.\n");
-        return 1;
+    if (fgets(name, sizeof(name), stdin) == NULL) {
+        fprintf(stderr, "Failed to read hotspot name\n");
+        return -1;
     }
-    name[strcspn(name, "\n")] = 0;
+    name[strcspn(name, "\n")] = '\0';
 
-    // Step 2: Security type selection
-    char security_selection[MAX_BUFFER];
-    if (!get_fzf_selection("interactive list-security", "Security > ",
-                          "Select security type", security_selection,
-                          sizeof(security_selection))) {
-        printf("Cancelled.\n");
-        return 1;
+    if (!validate_hotspot_name(name)) {
+        fprintf(stderr, "Invalid hotspot name\n");
+        return -1;
     }
 
-    // Parse selection
-    bool is_open = (strncmp(security_selection, "open", 4) == 0);
+    safe_string_copy(config.name, name, sizeof(config.name));
+    safe_string_copy(config.ssid, name, sizeof(config.ssid));
 
-    // Step 3: Get password if secured
+    // Step 2: WiFi interface selection
+    interface_info_t interfaces[8];
+    int iface_count = 0;
+
+    if (hotspot_get_interface_list(interfaces, 8, &iface_count) != WTERM_SUCCESS || iface_count == 0) {
+        fprintf(stderr, "No WiFi interfaces found\n");
+        return -1;
+    }
+
+    printf("\nAvailable WiFi interfaces:\n");
+    for (int i = 0; i < iface_count; i++) {
+        printf("  %d. %s (%s)\n", i + 1, interfaces[i].name, interfaces[i].status);
+    }
+
+    printf("Select interface [1-%d]: ", iface_count);
+    fflush(stdout);
+
+    int iface_choice;
+    if (scanf("%d", &iface_choice) != 1 || iface_choice < 1 || iface_choice > iface_count) {
+        fprintf(stderr, "Invalid selection\n");
+        return -1;
+    }
+    getchar(); // Consume newline
+
+    safe_string_copy(config.wifi_interface, interfaces[iface_choice - 1].name,
+                    sizeof(config.wifi_interface));
+
+    // Step 3: Security selection
+    security_option_t sec_options[2];
+    int sec_count = 0;
+    hotspot_get_security_options(sec_options, &sec_count);
+
+    printf("\nSecurity:\n");
+    for (int i = 0; i < sec_count; i++) {
+        printf("  %d. %s\n", i + 1, sec_options[i].display);
+    }
+
+    printf("Select security [1-%d]: ", sec_count);
+    fflush(stdout);
+
+    int sec_choice;
+    if (scanf("%d", &sec_choice) != 1 || sec_choice < 1 || sec_choice > sec_count) {
+        fprintf(stderr, "Invalid selection\n");
+        return -1;
+    }
+    getchar(); // Consume newline
+
+    bool is_open = (strcmp(sec_options[sec_choice - 1].id, "open") == 0);
+    config.security_type = is_open ? WIFI_SECURITY_NONE : WIFI_SECURITY_WPA2;
+
+    // Step 4: Password (if secured)
     if (!is_open) {
-        if (!get_password_input("Password (8-63 characters)", password, sizeof(password))) {
-            printf("Cancelled.\n");
-            explicit_bzero(password, sizeof(password));
-            return 1;
+        char password[HOTSPOT_PASSWORD_MAX];
+        char password_confirm[HOTSPOT_PASSWORD_MAX];
+
+        if (!get_password_input("Password", password, sizeof(password))) {
+            fprintf(stderr, "Failed to read password\n");
+            return -1;
         }
 
         if (strlen(password) < 8 || strlen(password) > 63) {
-            printf("ERROR: Password must be 8-63 characters\n");
+            fprintf(stderr, "Password must be 8-63 characters\n");
             explicit_bzero(password, sizeof(password));
             return -1;
         }
 
-        // Confirm password
-        char password_confirm[HOTSPOT_PASSWORD_MAX];
         if (!get_password_input("Confirm password", password_confirm, sizeof(password_confirm))) {
-            printf("Cancelled.\n");
-            return 1;
+            fprintf(stderr, "Failed to confirm password\n");
+            explicit_bzero(password, sizeof(password));
+            return -1;
         }
 
         if (strcmp(password, password_confirm) != 0) {
-            printf("ERROR: Passwords do not match\n");
+            fprintf(stderr, "Passwords do not match\n");
             explicit_bzero(password, sizeof(password));
             explicit_bzero(password_confirm, sizeof(password_confirm));
             return -1;
         }
 
-        // Clear confirmation password immediately after validation
+        safe_string_copy(config.password, password, sizeof(config.password));
+        explicit_bzero(password, sizeof(password));
         explicit_bzero(password_confirm, sizeof(password_confirm));
     }
 
-    // Step 4: Frequency band selection
-    char band_selection[MAX_BUFFER];
-    if (!get_fzf_selection("interactive list-bands", "Band > ",
-                          "Select frequency band", band_selection,
-                          sizeof(band_selection))) {
-        printf("Cancelled.\n");
-        return 1;
+    // Step 5: Band selection
+    band_option_t bands[2];
+    int band_count = 0;
+    hotspot_get_band_options(bands, &band_count);
+
+    printf("\nFrequency band:\n");
+    for (int i = 0; i < band_count; i++) {
+        printf("  %d. %s\n", i + 1, bands[i].display);
     }
 
-    // Extract band code (bg or a)
-    size_t band_tab_pos = strcspn(band_selection, "\t");
-    strncpy(band, band_selection, band_tab_pos);
-    band[band_tab_pos] = '\0';
+    printf("Select band [1-%d]: ", band_count);
+    fflush(stdout);
 
-    // Step 5: Interface selection
-    char interface_selection[MAX_BUFFER];
-    if (!get_fzf_selection("interactive get-interfaces", "Interface > ",
-                          "Select WiFi interface", interface_selection,
-                          sizeof(interface_selection))) {
-        printf("Cancelled.\n");
-        return 1;
+    int band_choice;
+    if (scanf("%d", &band_choice) != 1 || band_choice < 1 || band_choice > band_count) {
+        fprintf(stderr, "Invalid selection\n");
+        return -1;
+    }
+    getchar(); // Consume newline
+
+    config.is_5ghz = (strcmp(bands[band_choice - 1].id, "a") == 0);
+
+    // Create and start hotspot
+    printf("\nCreating hotspot '%s'...\n", config.name);
+
+    if (hotspot_create_config(&config) != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to create hotspot configuration\n");
+        return -1;
     }
 
-    // Extract interface name
-    size_t iface_tab_pos = strcspn(interface_selection, "\t");
-    strncpy(interface, interface_selection, iface_tab_pos);
-    interface[iface_tab_pos] = '\0';
+    printf("Starting hotspot...\n");
 
-    // Step 6: Confirm
-    printf("\n=== Configuration Summary ===\n");
-    printf("Name:      %s\n", name);
-    printf("Security:  %s\n", is_open ? "Open" : "WPA2-PSK");
-    printf("Band:      %s\n", strstr(band, "bg") ? "2.4GHz" : "5GHz");
-    printf("Interface: %s\n", interface);
+    hotspot_status_t status;
+    if (hotspot_start(config.name, &status) != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to start hotspot\n");
+        return -1;
+    }
+
+    printf("\n✓ Hotspot '%s' started successfully!\n", config.name);
+    printf("  SSID: %s\n", config.ssid);
+    printf("  Security: %s\n", is_open ? "Open" : "WPA2-PSK");
+    printf("  Band: %s\n", config.is_5ghz ? "5GHz" : "2.4GHz");
+
+    return 0;
+}
+
+// Start a hotspot interactively
+int hotspot_start_interactive(void) {
+    char name[MAX_STR_SSID];
+    if (!hotspot_select(NULL, name, sizeof(name))) {
+        fprintf(stderr, "No hotspot selected\n");
+        return -1;
+    }
+
+    printf("Starting hotspot '%s'...\n", name);
+
+    hotspot_status_t status;
+    if (hotspot_start(name, &status) != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to start hotspot\n");
+        return -1;
+    }
+
+    printf("✓ Hotspot started successfully\n");
+    return 0;
+}
+
+// Stop a hotspot interactively
+int hotspot_stop_interactive(void) {
+    char name[MAX_STR_SSID];
+    if (!hotspot_select(NULL, name, sizeof(name))) {
+        fprintf(stderr, "No hotspot selected\n");
+        return -1;
+    }
+
+    printf("Stopping hotspot '%s'...\n", name);
+
+    if (hotspot_stop(name) != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to stop hotspot\n");
+        return -1;
+    }
+
+    printf("✓ Hotspot stopped successfully\n");
+    return 0;
+}
+
+// Delete a hotspot interactively
+int hotspot_delete_interactive(void) {
+    char name[MAX_STR_SSID];
+    if (!hotspot_select(NULL, name, sizeof(name))) {
+        fprintf(stderr, "No hotspot selected\n");
+        return -1;
+    }
+
+    char prompt[128];
+    snprintf(prompt, sizeof(prompt), "Delete hotspot '%s'?", name);
+
+    if (!get_confirmation(prompt)) {
+        printf("Cancelled\n");
+        return 0;
+    }
+
+    if (hotspot_delete_config(name) != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to delete hotspot\n");
+        return -1;
+    }
+
+    printf("✓ Hotspot '%s' deleted\n", name);
+    return 0;
+}
+
+// List all hotspots
+int hotspot_list_all(void) {
+    hotspot_list_t list;
+    if (hotspot_list_configs(&list) != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to get hotspot list\n");
+        return -1;
+    }
+
+    printf("\n=== Configured Hotspots ===\n\n");
+
+    if (list.count == 0) {
+        printf("No hotspots configured\n");
+        return 0;
+    }
+
+    for (int i = 0; i < list.count; i++) {
+        printf("  • %s\n", list.hotspots[i].name);
+        printf("    SSID: %s\n", list.hotspots[i].ssid);
+        printf("    Security: %s\n",
+               list.hotspots[i].security_type == WIFI_SECURITY_NONE ? "Open" : "WPA2-PSK");
+        printf("    Band: %s\n", list.hotspots[i].is_5ghz ? "5GHz" : "2.4GHz");
+        printf("\n");
+    }
+
+    return 0;
+}
+
+// Show hotspot status
+int hotspot_show_status(void) {
+    char name[MAX_STR_SSID];
+    if (!hotspot_select(NULL, name, sizeof(name))) {
+        fprintf(stderr, "No hotspot selected\n");
+        return -1;
+    }
+
+    hotspot_status_t status;
+    if (hotspot_get_status(name, &status) != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to get status\n");
+        return -1;
+    }
+
+    printf("\n=== Hotspot Status ===\n\n");
+    printf("  Name: %s\n", status.config.name);
+    printf("  SSID: %s\n", status.config.ssid);
+    printf("  State: %s\n", status.state == HOTSPOT_STATE_ACTIVE ? "Running" : "Stopped");
+    printf("  Security: %s\n",
+           status.config.security_type == WIFI_SECURITY_NONE ? "Open" : "WPA2-PSK");
+    printf("  Interface: %s\n", status.config.wifi_interface);
     printf("\n");
 
-    if (!get_confirmation("Create this hotspot?")) {
-        printf("Cancelled.\n");
+    return 0;
+}
+
+// Helper to check if we need root for an operation
+// If not root, prompts to restart menu with sudo
+static bool check_root_for_operation(const char* operation, int argc, char *argv[]) {
+    if (is_root()) {
+        return true;
+    }
+
+    printf("\n⚠️  %s requires root privileges\n", operation);
+    printf("Restart menu with sudo? [y/N]: ");
+    fflush(stdout);
+
+    char response[10];
+    if (fgets(response, sizeof(response), stdin) == NULL) {
+        return false;
+    }
+
+    if (response[0] != 'y' && response[0] != 'Y') {
+        printf("Operation cancelled\n");
+        return false;
+    }
+
+    // User wants sudo - restart entire menu with elevation
+    printf("\n🔐 Elevating to root...\n\n");
+
+    // Build sudo command to restart menu
+    char **sudo_args = malloc(sizeof(char*) * (argc + 2));
+    if (!sudo_args) {
+        fprintf(stderr, "Memory allocation failed\n");
+        return false;
+    }
+
+    sudo_args[0] = "sudo";
+    for (int i = 0; i < argc; i++) {
+        sudo_args[i + 1] = argv[i];
+    }
+    sudo_args[argc + 1] = NULL;
+
+    // Execute sudo (replaces current process)
+    execvp("sudo", sudo_args);
+
+    // If we get here, exec failed
+    fprintf(stderr, "Failed to execute sudo: %s\n", strerror(errno));
+    free(sudo_args);
+    return false;
+}
+
+// Interactive main menu
+int hotspot_interactive_menu(int argc, char *argv[], bool skip_elevation) {
+    // Don't force elevation at start - let individual operations check as needed
+    // This allows read-only operations (list, status) without root privileges
+
+    // Initialize hotspot manager (doesn't require root)
+    if (hotspot_manager_init() != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to initialize hotspot manager\n");
         return 1;
     }
 
-    // Step 7: Create hotspot
-    char create_command[MAX_BUFFER];
-    if (is_open) {
-        snprintf(create_command, sizeof(create_command),
-                 "create %s --open --band %s --interface %s",
-                 name, band, interface);
-    } else {
-        snprintf(create_command, sizeof(create_command),
-                 "create %s '%s' --band %s --interface %s",
-                 name, password, band, interface);
-    }
+    while (true) {
+        printf("\n=== Hotspot Management ===\n\n");
+        printf("  1. Create new hotspot\n");
+        printf("  2. Start hotspot\n");
+        printf("  3. Stop hotspot\n");
+        printf("  4. Delete hotspot\n");
+        printf("  5. List hotspots\n");
+        printf("  6. Show status\n");
+        printf("  7. Exit\n\n");
+        printf("Select option [1-7]: ");
+        fflush(stdout);
 
-    // Clear password from memory immediately after use
-    explicit_bzero(password, sizeof(password));
-
-    char output[MAX_BUFFER] = {0};
-    if (run_script_command(create_command, output, sizeof(output))) {
-        printf("\n%s\n", output);
-        return 0;
-    } else {
-        printf("\nERROR: Failed to create hotspot\n%s\n", output);
-        return -1;
-    }
-}
-
-// Helper function for common hotspot actions (start/stop/delete)
-static int run_hotspot_action(const char* action, const char* filter) {
-    char hotspot_name[MAX_STR_SSID];
-
-    if (!hotspot_select(filter, hotspot_name, sizeof(hotspot_name))) {
-        printf("Cancelled.\n");
-        return 1;
-    }
-
-    char command[MAX_BUFFER];
-    snprintf(command, sizeof(command), "%s %s", action, hotspot_name);
-
-    char output[MAX_BUFFER] = {0};
-    if (run_script_command(command, output, sizeof(output))) {
-        printf("\n%s\n", output);
-        return 0;
-    } else {
-        printf("\nERROR: Failed to %s hotspot\n%s\n", action, output);
-        return -1;
-    }
-}
-
-int hotspot_start_interactive(void) {
-    return run_hotspot_action("start", "stopped");
-}
-
-int hotspot_stop_interactive(void) {
-    return run_hotspot_action("stop", "running");
-}
-
-int hotspot_delete_interactive(void) {
-    char hotspot_name[MAX_STR_SSID];
-
-    if (!hotspot_select(NULL, hotspot_name, sizeof(hotspot_name))) {
-        printf("Cancelled.\n");
-        return 1;
-    }
-
-    if (!get_confirmation("Are you sure you want to delete this hotspot?")) {
-        printf("Cancelled.\n");
-        return 1;
-    }
-
-    // Build command directly since we already have the name
-    char command[MAX_BUFFER];
-    snprintf(command, sizeof(command), "delete %s", hotspot_name);
-
-    char output[MAX_BUFFER] = {0};
-    if (run_script_command(command, output, sizeof(output))) {
-        printf("\n%s\n", output);
-        return 0;
-    } else {
-        printf("\nERROR: Failed to delete hotspot\n%s\n", output);
-        return -1;
-    }
-}
-
-int hotspot_list_all(void) {
-    char output[MAX_BUFFER] = {0};
-    if (run_script_command("list", output, sizeof(output))) {
-        printf("\n%s\n", output);
-        return 0;
-    } else {
-        printf("\nERROR: Failed to list hotspots\n%s\n", output);
-        return -1;
-    }
-}
-
-int hotspot_show_status(void) {
-    char output[MAX_BUFFER] = {0};
-    if (run_script_command("status", output, sizeof(output))) {
-        printf("\n%s\n", output);
-        return 0;
-    } else {
-        printf("\nERROR: Failed to show status\n%s\n", output);
-        return -1;
-    }
-}
-
-int hotspot_interactive_menu(void) {
-    while (1) {
-        char selection[MAX_BUFFER];
-
-        if (!get_fzf_selection("interactive list-actions", "Hotspot Manager > ",
-                              "Select an action (ESC to exit)",
-                              selection, sizeof(selection))) {
-            // User cancelled (ESC)
-            return 0;
+        int choice;
+        if (scanf("%d", &choice) != 1) {
+            fprintf(stderr, "Invalid input\n");
+            while (getchar() != '\n'); // Clear input buffer
+            continue;
         }
+        getchar(); // Consume newline
 
-        // Parse action from format: action\tdescription
-        char action[HOTSPOT_ACTION_MAX];
-        size_t action_tab_pos = strcspn(selection, "\t");
-        strncpy(action, selection, action_tab_pos);
-        action[action_tab_pos] = '\0';
-
-        int result = 0;
-        if (strcmp(action, "create") == 0) {
-            result = hotspot_create_wizard();
-        } else if (strcmp(action, "start") == 0) {
-            result = hotspot_start_interactive();
-        } else if (strcmp(action, "stop") == 0) {
-            result = hotspot_stop_interactive();
-        } else if (strcmp(action, "restart") == 0) {
-            result = run_hotspot_action("restart", NULL);
-        } else if (strcmp(action, "delete") == 0) {
-            result = hotspot_delete_interactive();
-        } else if (strcmp(action, "list") == 0) {
-            result = hotspot_list_all();
-        } else if (strcmp(action, "status") == 0) {
-            result = hotspot_show_status();
-        } else if (strcmp(action, "exit") == 0) {
-            return 0;
-        }
-
-        // Pause before returning to menu
-        if (result != 1) {  // Don't pause if user cancelled
-            // Clear input buffer
-            int c;
-            while ((c = getchar()) != '\n' && c != EOF);
-
-            printf("\nPress Enter to continue...");
-            getchar();
+        switch (choice) {
+            case 1:
+                if (check_root_for_operation("Creating hotspot", argc, argv)) {
+                    hotspot_create_wizard();
+                }
+                break;
+            case 2:
+                if (check_root_for_operation("Starting hotspot", argc, argv)) {
+                    hotspot_start_interactive();
+                }
+                break;
+            case 3:
+                if (check_root_for_operation("Stopping hotspot", argc, argv)) {
+                    hotspot_stop_interactive();
+                }
+                break;
+            case 4:
+                if (check_root_for_operation("Deleting hotspot", argc, argv)) {
+                    hotspot_delete_interactive();
+                }
+                break;
+            case 5:
+                hotspot_list_all();
+                break;
+            case 6:
+                hotspot_show_status();
+                break;
+            case 7:
+                printf("Exiting...\n");
+                hotspot_manager_cleanup();
+                return 0;
+            default:
+                fprintf(stderr, "Invalid option\n");
         }
     }
 

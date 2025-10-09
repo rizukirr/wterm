@@ -4,21 +4,23 @@
  */
 
 #include "../include/wterm/common.h"
-#include "core/connection.h"
+#include "../include/wterm/tui_interface.h"
 #include "core/hotspot_manager.h"
 #include "core/hotspot_ui.h"
 #include "core/network_scanner.h"
-#include "fzf_ui.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
+static void print_version(void) { printf("wterm version 3.1.0\n"); }
+
 static void print_usage(const char *program_name) {
   printf("Usage: %s [OPTION|COMMAND]\n\n", program_name);
   printf("WiFi network connection and hotspot management tool.\n\n");
   printf("Options:\n");
-  printf("  -h, --help     Show this help message\n\n");
+  printf("  -h, --help       Show this help message\n");
+  printf("  -v, --version    Show version information\n\n");
   printf("Commands:\n");
   printf("  hotspot        Manage WiFi hotspots\n");
   printf("  [no command]   Show network selection interface (default)\n\n");
@@ -65,7 +67,8 @@ static wterm_result_t scan_networks_with_loading(network_list_t *network_list,
   const char *message =
       is_rescan ? "Rescanning networks..." : "Scanning networks...";
 
-  show_loading_animation(message);
+  printf("%s\n", message);
+  fflush(stdout);
 
   wterm_result_t result;
   if (is_rescan) {
@@ -78,8 +81,6 @@ static wterm_result_t scan_networks_with_loading(network_list_t *network_list,
     result = scan_wifi_networks(network_list);
   }
 
-  hide_loading_animation();
-
   if (result != WTERM_SUCCESS) {
     fprintf(stderr, "Failed to scan WiFi networks\n");
   }
@@ -87,129 +88,78 @@ static wterm_result_t scan_networks_with_loading(network_list_t *network_list,
   return result;
 }
 
-static wterm_result_t handle_fzf_mode(void) {
-  // Check if fzf is available
-  if (!fzf_is_available()) {
-    fprintf(stderr, "fzf not found - falling back to text mode\n");
-    fprintf(stderr, "Install fzf for interactive selection: "
-                    "https://github.com/junegunn/fzf\n");
+static wterm_result_t handle_tui_mode(void) {
+  // Check if TUI is available
+  if (!tui_is_available()) {
+    fprintf(stderr,
+            "TUI not available - must run in a proper terminal (TTY)\n");
     return handle_list_networks();
   }
 
-  while (true) {
-    // Scan networks with loading indicator
-    network_list_t network_list;
-    wterm_result_t result = scan_networks_with_loading(&network_list, false);
-    if (result != WTERM_SUCCESS) {
-      return result;
-    }
+  // Do initial scan BEFORE initializing TUI (so loading messages show)
+  network_list_t network_list;
+  wterm_result_t result = scan_networks_with_loading(&network_list, false);
+  if (result != WTERM_SUCCESS) {
+    return result;
+  }
 
-    // Show fzf selection
+  // Initialize TUI after scan completes
+  if (tui_init() != WTERM_SUCCESS) {
+    fprintf(stderr, "TUI initialization failed\n");
+    return WTERM_ERROR_GENERAL;
+  }
+
+  while (true) {
+    // Show network selection (TUI handles connections internally)
     char selected_ssid[MAX_STR_SSID];
-    if (!fzf_select_network_proper(&network_list, selected_ssid,
-                                   sizeof(selected_ssid))) {
-      fzf_show_message("No network selected.");
+    bool selection_made =
+        tui_select_network(&network_list, selected_ssid, sizeof(selected_ssid));
+
+    if (!selection_made) {
+      // User quit
+      tui_shutdown();
       return WTERM_SUCCESS;
     }
 
     // Check if user selected rescan
     if (strcmp(selected_ssid, "RESCAN") == 0) {
+      // Clean up TUI before rescanning
+      tui_shutdown();
+
+      // Rescan (loading message will show because TUI is shut down)
       result = scan_networks_with_loading(&network_list, true);
       if (result != WTERM_SUCCESS) {
         return result;
+      }
+
+      // Reinitialize TUI after scan completes
+      if (tui_init() != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to reinitialize TUI\n");
+        return WTERM_ERROR_GENERAL;
       }
       continue; // Show selection again with new networks
     }
 
     // Check if user selected hotspot manager
     if (strcmp(selected_ssid, "HOTSPOT") == 0) {
-      hotspot_interactive_menu();
+      // Clean up TUI before launching hotspot menu
+      tui_shutdown();
+
+      // Create a minimal argv for hotspot-only mode
+      // Pass skip_elevation=true since we're already in the interactive session
+      char *hotspot_argv[] = {"wterm", "hotspot", NULL};
+      hotspot_interactive_menu(2, hotspot_argv, true);
+
+      // Reinitialize TUI for next selection
+      if (tui_init() != WTERM_SUCCESS) {
+        fprintf(stderr, "Failed to reinitialize TUI\n");
+        return WTERM_ERROR_GENERAL;
+      }
       continue; // Return to network selection after hotspot menu
     }
 
-    // Find the selected network in our list
-    network_info_t *selected_network = NULL;
-    for (int i = 0; i < network_list.count; i++) {
-      if (strcmp(network_list.networks[i].ssid, selected_ssid) == 0) {
-        selected_network = &network_list.networks[i];
-        break;
-      }
-    }
-
-    if (!selected_network) {
-      fprintf(stderr, "Selected network not found in scan results\n");
-      return WTERM_ERROR_GENERAL;
-    }
-
-    // Check if already connected to this network
-    if (is_connected_to_network(selected_ssid)) {
-      char message[512];
-      snprintf(message, sizeof(message),
-               "Already connected to '%s'. Disconnect? [y/N]: ", selected_ssid);
-
-      printf("\n%s", message);
-      fflush(stdout);
-
-      char response[10];
-      if (fgets(response, sizeof(response), stdin)) {
-        if (response[0] == 'y' || response[0] == 'Y') {
-          printf("Disconnecting...\n");
-          wterm_result_t disconnect_result = disconnect_current_network();
-
-          if (disconnect_result == WTERM_SUCCESS) {
-            printf("✓ Disconnected successfully!\n");
-          } else {
-            printf("✗ Failed to disconnect\n");
-          }
-
-          // Wait a moment for user to see the message
-          sleep(2);
-        }
-      }
-
-      continue; // Return to network selection
-    }
-
-    // Handle connection
-    connection_result_t conn_result;
-    bool is_secured = network_requires_password(selected_network->security);
-    bool is_saved = is_saved_connection(selected_ssid);
-
-    if (is_secured && !is_saved) {
-      // Secured network without saved connection - ask for password
-      char password[256];
-      if (!fzf_get_password(selected_ssid, password, sizeof(password))) {
-        fzf_show_message("Connection cancelled.");
-        continue; // Return to network selection instead of exiting
-      }
-
-      fzf_show_message("Connecting...");
-      conn_result = connect_to_secured_network(selected_ssid, password);
-
-      // Clear password from memory
-      memset(password, 0, sizeof(password));
-    } else if (is_secured && is_saved) {
-      // Secured network with saved connection - use stored password
-      fzf_show_message("Connecting (using saved credentials)...");
-      // Pass empty password, connection.c will use 'nmcli connection up'
-      conn_result = connect_to_secured_network(selected_ssid, "");
-    } else {
-      // Open network
-      fzf_show_message("Connecting to open network...");
-      conn_result = connect_to_open_network(selected_ssid);
-    }
-
-    // Show result
-    if (conn_result.result == WTERM_SUCCESS) {
-      fzf_show_message("✓ Connected successfully!");
-    } else {
-      char error_msg[512];
-      snprintf(error_msg, sizeof(error_msg), "✗ Connection failed: %s",
-               conn_result.error_message);
-      fzf_show_message(error_msg);
-    }
-
-    return conn_result.result;
+    // For TUI mode, connections are handled internally
+    // Loop continues to show network list again
   }
 }
 
@@ -405,115 +355,24 @@ static wterm_result_t handle_hotspot_quick(void) {
 }
 
 static wterm_result_t handle_hotspot_create(void) {
-  // Check if fzf is available
-  if (!fzf_is_available()) {
-    fprintf(stderr,
-            "fzf not found - interactive hotspot creation requires fzf\n");
-    fprintf(stderr, "Install fzf: https://github.com/junegunn/fzf\n");
-    fprintf(stderr, "Or use 'wterm hotspot quick' for default settings\n");
-    return WTERM_ERROR_GENERAL;
-  }
-
-  wterm_result_t result = hotspot_manager_init();
-  if (result != WTERM_SUCCESS) {
-    fprintf(stderr, "Failed to initialize hotspot manager\n");
-    return result;
-  }
-
-  hotspot_config_t config;
-  if (!fzf_create_hotspot_interactive(&config)) {
-    printf("Hotspot creation cancelled.\n");
-    hotspot_manager_cleanup();
-    return WTERM_SUCCESS;
-  }
-
-  // Validate the configuration
-  char error_msg[256];
-  result = hotspot_validate_config(&config, error_msg, sizeof(error_msg));
-  if (result != WTERM_SUCCESS) {
-    fprintf(stderr, "Configuration error: %s\n", error_msg);
-    hotspot_manager_cleanup();
-    return result;
-  }
-
-  // Create the hotspot configuration
-  result = hotspot_create_config(&config);
-  if (result != WTERM_SUCCESS) {
-    fprintf(stderr, "Failed to create hotspot configuration\n");
-
-    // Provide more specific error information
-    switch (result) {
-    case WTERM_ERROR_NETWORK:
-      fprintf(stderr, "Network error: Check if NetworkManager is running and "
-                      "interface supports AP mode\n");
-      break;
-    case WTERM_ERROR_INVALID_INPUT:
-      fprintf(stderr, "Invalid configuration: Check SSID length, password, and "
-                      "interface names\n");
-      break;
-    case WTERM_ERROR_PERMISSION:
-      fprintf(stderr, "Permission error: Try running with sudo or check "
-                      "NetworkManager permissions\n");
-      break;
-    case WTERM_ERROR_GENERAL:
-      fprintf(stderr, "A hotspot with this name may already exist. Try 'wterm "
-                      "hotspot list' to check\n");
-      break;
-    default:
-      fprintf(stderr, "Error code: %d\n", result);
-      break;
-    }
-
-    fprintf(stderr, "\nTroubleshooting:\n");
-    fprintf(
-        stderr,
-        "- Check that wlan1 supports Access Point mode: iw dev wlan1 info\n");
-    fprintf(stderr, "- Verify NetworkManager version supports wifi-hotspot: "
-                    "nmcli --version\n");
-    fprintf(stderr, "- Try the quick command: wterm hotspot quick\n");
-
-    hotspot_manager_cleanup();
-    return result;
-  }
-
-  printf("✓ Hotspot configuration '%s' created successfully\n", config.name);
-  printf("SSID: %s\n", config.ssid);
-  printf("Interface: %s\n", config.wifi_interface);
-  if (config.internet_interface[0]) {
-    printf("Sharing from: %s\n", config.internet_interface);
-  }
-
-  // Ask if user wants to start the hotspot immediately
-  printf("\nStart hotspot now? [y/N]: ");
-  fflush(stdout);
-
-  char response[10];
-  if (fgets(response, sizeof(response), stdin)) {
-    if (response[0] == 'y' || response[0] == 'Y') {
-      hotspot_status_t status;
-      result = hotspot_start(config.name, &status);
-      if (result == WTERM_SUCCESS) {
-        printf("✓ Hotspot '%s' started successfully\n", config.name);
-      } else {
-        fprintf(stderr, "✗ Failed to start hotspot '%s'\n", config.name);
-      }
-    }
-  }
-
-  hotspot_manager_cleanup();
-  return result;
+  fprintf(stderr, "Interactive hotspot creation is available via TUI mode.\n");
+  fprintf(stderr, "Use 'wterm hotspot' to access the interactive menu, or\n");
+  fprintf(stderr, "Use 'wterm hotspot quick' for quick setup with defaults.\n");
+  return WTERM_ERROR_GENERAL;
 }
 
 static wterm_result_t handle_hotspot_commands(int argc, char *argv[]) {
   if (argc < 3) {
     // No subcommand provided, show interactive menu by default
-    return hotspot_interactive_menu();
+    // Pass skip_elevation=false to allow sudo elevation from command line
+    return hotspot_interactive_menu(argc, argv, false);
   }
 
   const char *subcommand = argv[2];
 
   if (strcmp(subcommand, "menu") == 0) {
-    return hotspot_interactive_menu();
+    // Pass skip_elevation=false to allow sudo elevation from command line
+    return hotspot_interactive_menu(argc, argv, false);
   } else if (strcmp(subcommand, "list") == 0) {
     return handle_hotspot_list();
   } else if (strcmp(subcommand, "start") == 0) {
@@ -554,6 +413,10 @@ int main(int argc, char *argv[]) {
     if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
       print_usage(argv[0]);
       return WTERM_SUCCESS;
+    } else if (strcmp(argv[1], "-v") == 0 ||
+               strcmp(argv[1], "--version") == 0) {
+      print_version();
+      return WTERM_SUCCESS;
     } else if (strcmp(argv[1], "hotspot") == 0) {
       // Handle hotspot commands
       return handle_hotspot_commands(argc, argv);
@@ -564,7 +427,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Default action: show fzf interface
-  wterm_result_t result = handle_fzf_mode();
+  // Default action: show TUI interface
+  wterm_result_t result = handle_tui_mode();
   return result;
 }

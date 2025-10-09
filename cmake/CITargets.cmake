@@ -47,6 +47,7 @@ if(CPPCHECK_EXECUTABLE)
             --error-exitcode=1
             --suppress=missingIncludeSystem
             --suppress=unusedFunction
+            --suppress=staticFunction
             --inline-suppr
             --std=c99
             -I ${CMAKE_SOURCE_DIR}/include

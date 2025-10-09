@@ -133,3 +133,22 @@ typedef struct {
     int count;
 } hotspot_list_t;
 
+// Interface information for hotspot UI
+typedef struct {
+    char name[MAX_STR_INTERFACE];      // Interface name (e.g., wlan0)
+    char status[32];                   // Status: connected, disconnected
+    bool supports_ap;                  // Supports Access Point mode
+} interface_info_t;
+
+// Band option for hotspot UI
+typedef struct {
+    char id[8];                        // Band ID: "bg", "a"
+    char display[64];                  // Display text for user
+} band_option_t;
+
+// Security option for hotspot UI
+typedef struct {
+    char id[16];                       // Security ID: "secured", "open"
+    char display[64];                  // Display text for user
+} security_option_t;
+

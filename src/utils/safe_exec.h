@@ -40,4 +40,16 @@ bool safe_command_exists(const char* command);
  */
 bool safe_exec_check(const char* program, char* const args[]);
 
+/**
+ * @brief Execute a command silently and check if it succeeds (returns 0)
+ *
+ * Similar to safe_exec_check(), but redirects stdout and stderr to /dev/null
+ * to prevent command output from appearing in the terminal.
+ *
+ * @param program Program name or path
+ * @param args NULL-terminated array of arguments
+ * @return true if command succeeded (exit code 0), false otherwise
+ */
+bool safe_exec_check_silent(const char* program, char* const args[]);
+
 #endif // WTERM_SAFE_EXEC_H
