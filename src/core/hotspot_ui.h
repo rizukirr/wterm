@@ -14,14 +14,13 @@
  *
  * Displays main menu with options to create, start, stop, delete hotspots.
  * Uses text-based selection interface for menu navigation.
- * Can optionally skip privilege elevation when called from within wterm.
+ * Individual operations check for root privileges as needed.
  *
  * @param argc Argument count from main()
  * @param argv Argument vector from main()
- * @param skip_elevation If true, skip sudo re-execution (for internal calls)
  * @return 0 on success, non-zero on error
  */
-int hotspot_interactive_menu(int argc, char *argv[], bool skip_elevation);
+int hotspot_interactive_menu(int argc, char *argv[]);
 
 /**
  * @brief Select a hotspot from available hotspots using fzf

@@ -354,6 +354,89 @@ connection_status_t get_connection_status(void) {
         }
     }
 
+    // Check kernel-level association state to detect zombie connections
+    char wifi_interface[MAX_STR_INTERFACE];
+    if (!iw_get_first_wifi_interface(wifi_interface, sizeof(wifi_interface))) {
+        // Fallback to wlan0 if detection fails
+        safe_string_copy(wifi_interface, "wlan0", sizeof(wifi_interface));
+    }
+
+    bool kernel_associated = false;
+    iw_check_association(wifi_interface, &kernel_associated);
+    status.kernel_associated = kernel_associated;
+
+    // Get SSID from kernel if associated
+    if (kernel_associated) {
+        iw_get_connected_ssid(wifi_interface, status.kernel_ssid, sizeof(status.kernel_ssid));
+    }
+
+    // Detect zombie connection: kernel connected but NetworkManager disconnected
+    status.is_zombie = (kernel_associated && !status.is_connected);
+
+    // Auto-recover from zombie state
+    if (status.is_zombie) {
+        // Attempt recovery by forcing NetworkManager to re-sync
+        if (recover_from_zombie_connection(wifi_interface) == WTERM_SUCCESS) {
+            // Re-check connection status after recovery
+            fp = popen("nmcli -t -f NAME,TYPE,DEVICE connection show --active", "r");
+            if (fp) {
+                while (fgets(buffer, sizeof(buffer), fp)) {
+                    buffer[strcspn(buffer, "\n")] = '\0';
+
+                    char *first_colon = strchr(buffer, ':');
+                    if (!first_colon) continue;
+
+                    char *second_colon = strchr(first_colon + 1, ':');
+                    if (!second_colon) continue;
+
+                    *first_colon = '\0';
+                    *second_colon = '\0';
+                    const char *name = buffer;
+                    const char *type = first_colon + 1;
+
+                    if (strcmp(type, "802-11-wireless") == 0) {
+                        safe_string_copy(status.connection_name, name, sizeof(status.connection_name));
+                        status.is_connected = true;
+                        status.is_zombie = false;
+                        break;
+                    }
+                }
+                pclose(fp);
+            }
+
+            // Get SSID after recovery
+            if (status.is_connected) {
+                fp = popen("nmcli -t -f ACTIVE,SSID device wifi list", "r");
+                if (fp) {
+                    while (fgets(buffer, sizeof(buffer), fp)) {
+                        buffer[strcspn(buffer, "\n")] = '\0';
+                        if (strncmp(buffer, "yes:", 4) == 0) {
+                            const char *ssid_start = buffer + 4;
+                            safe_string_copy(status.connected_ssid, ssid_start, sizeof(status.connected_ssid));
+                            break;
+                        }
+                    }
+                    pclose(fp);
+                }
+
+                // Get IP address after recovery
+                fp = popen("nmcli -t -f IP4.ADDRESS connection show --active 2>/dev/null | head -1", "r");
+                if (fp) {
+                    if (fgets(buffer, sizeof(buffer), fp)) {
+                        buffer[strcspn(buffer, "\n")] = '\0';
+                        const char *ip_start = strrchr(buffer, ':');
+                        if (ip_start && ip_start[1] != '\0') {
+                            safe_string_copy(status.ip_address, ip_start + 1, sizeof(status.ip_address));
+                        } else if (strlen(buffer) > 0) {
+                            safe_string_copy(status.ip_address, buffer, sizeof(status.ip_address));
+                        }
+                    }
+                    pclose(fp);
+                }
+            }
+        }
+    }
+
     return status;
 }
 
@@ -457,6 +540,51 @@ wterm_result_t disconnect_current_network(void) {
     if (still_associated) {
         return WTERM_ERROR_NETWORK; // Kernel-level association still exists
     }
+
+    return WTERM_SUCCESS;
+}
+
+wterm_result_t recover_from_zombie_connection(const char* interface) {
+    if (!interface || strlen(interface) == 0) {
+        return WTERM_ERROR_INVALID_INPUT;
+    }
+
+    // Force NetworkManager to re-sync with kernel state
+    // by toggling interface management off and on
+    char* const unmanage_args[] = {
+        "nmcli",
+        "device",
+        "set",
+        (char*)interface,
+        "managed",
+        "no",
+        NULL
+    };
+
+    wterm_result_t result = safe_exec_check("nmcli", unmanage_args);
+    if (result != WTERM_SUCCESS) {
+        return result;
+    }
+
+    sleep(1);
+
+    char* const manage_args[] = {
+        "nmcli",
+        "device",
+        "set",
+        (char*)interface,
+        "managed",
+        "yes",
+        NULL
+    };
+
+    result = safe_exec_check("nmcli", manage_args);
+    if (result != WTERM_SUCCESS) {
+        return result;
+    }
+
+    // Give NetworkManager time to re-detect the connection
+    sleep(2);
 
     return WTERM_SUCCESS;
 }
