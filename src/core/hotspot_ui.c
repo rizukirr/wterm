@@ -31,34 +31,6 @@ static bool is_root(void) {
     return (geteuid() == 0);
 }
 
-// Re-execute with sudo if not root
-static void ensure_root_privileges(int argc, char *argv[]) {
-    if (is_root()) {
-        return; // Already root
-    }
-
-    // Build command to re-execute with sudo
-    size_t args_size = argc + 2; // sudo + program + args + NULL
-    char **sudo_args = malloc(sizeof(char*) * args_size);
-    if (!sudo_args) {
-        fprintf(stderr, "Memory allocation failed\n");
-        exit(1);
-    }
-
-    sudo_args[0] = "sudo";
-    for (int i = 0; i < argc; i++) {
-        sudo_args[i + 1] = argv[i];
-    }
-    sudo_args[args_size - 1] = NULL;
-
-    fprintf(stdout, "Hotspot management requires root privileges. Re-executing with sudo...\n");
-    execvp("sudo", sudo_args);
-
-    // If we get here, exec failed
-    fprintf(stderr, "Failed to execute sudo: %s\n", strerror(errno));
-    free(sudo_args);
-    exit(1);
-}
 
 // Helper to get user confirmation
 static bool get_confirmation(const char* message) {
@@ -473,7 +445,7 @@ static bool check_root_for_operation(const char* operation, int argc, char *argv
 }
 
 // Interactive main menu
-int hotspot_interactive_menu(int argc, char *argv[], bool skip_elevation) {
+int hotspot_interactive_menu(int argc, char *argv[]) {
     // Don't force elevation at start - let individual operations check as needed
     // This allows read-only operations (list, status) without root privileges
 

@@ -146,9 +146,8 @@ static wterm_result_t handle_tui_mode(void) {
       tui_shutdown();
 
       // Create a minimal argv for hotspot-only mode
-      // Pass skip_elevation=true since we're already in the interactive session
       char *hotspot_argv[] = {"wterm", "hotspot", NULL};
-      hotspot_interactive_menu(2, hotspot_argv, true);
+      hotspot_interactive_menu(2, hotspot_argv);
 
       // Reinitialize TUI for next selection
       if (tui_init() != WTERM_SUCCESS) {
@@ -364,15 +363,13 @@ static wterm_result_t handle_hotspot_create(void) {
 static wterm_result_t handle_hotspot_commands(int argc, char *argv[]) {
   if (argc < 3) {
     // No subcommand provided, show interactive menu by default
-    // Pass skip_elevation=false to allow sudo elevation from command line
-    return hotspot_interactive_menu(argc, argv, false);
+    return hotspot_interactive_menu(argc, argv);
   }
 
   const char *subcommand = argv[2];
 
   if (strcmp(subcommand, "menu") == 0) {
-    // Pass skip_elevation=false to allow sudo elevation from command line
-    return hotspot_interactive_menu(argc, argv, false);
+    return hotspot_interactive_menu(argc, argv);
   } else if (strcmp(subcommand, "list") == 0) {
     return handle_hotspot_list();
   } else if (strcmp(subcommand, "start") == 0) {
