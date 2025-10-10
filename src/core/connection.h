@@ -39,6 +39,9 @@ typedef struct {
     char connection_name[MAX_STR_SSID];  // Connection profile name (may differ from SSID)
     char connection_uuid[64];
     char ip_address[16];
+    bool is_zombie;                      // Kernel connected but NM disconnected
+    char kernel_ssid[MAX_STR_SSID];      // SSID from kernel (iw)
+    bool kernel_associated;              // Kernel-level association state
 } connection_status_t;
 
 /**
@@ -67,6 +70,14 @@ connection_status_t get_connection_status(void);
  * @return wterm_result_t Result of disconnect operation
  */
 wterm_result_t disconnect_current_network(void);
+
+/**
+ * @brief Recover from zombie connection state
+ * Forces NetworkManager to re-sync with kernel state by toggling interface management
+ * @param interface WiFi interface name (e.g., "wlan0")
+ * @return wterm_result_t Result of recovery operation
+ */
+wterm_result_t recover_from_zombie_connection(const char* interface);
 
 /**
  * @brief Check if a network requires a password
