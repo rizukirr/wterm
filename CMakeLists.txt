@@ -11,6 +11,10 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+# Find pthread library (required for TUI cancellation support)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 # Build options
 option(BUILD_TESTS "Build unit tests" ON)
 option(BUILD_DOCS "Build documentation" OFF)
@@ -119,6 +123,7 @@ target_link_libraries(wterm_tui
     wterm_string_utils
     wterm_network_scanner
     wterm_connection
+    Threads::Threads
 )
 
 # Create main executable

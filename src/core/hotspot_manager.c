@@ -149,18 +149,22 @@ wterm_result_t hotspot_start(const char *name, hotspot_status_t *status) {
 
     if (config->password[0] != '\0') {
         // Secured hotspot with password
+        // Note: connection.autoconnect no prevents auto-connection at boot (avoids zombie connections)
         written = snprintf(command, sizeof(command),
             "nmcli connection add type wifi ifname %s con-name %s ssid %s "
             "802-11-wireless.mode ap "
             "802-11-wireless-security.key-mgmt wpa-psk "
             "802-11-wireless-security.psk \"%s\" "
+            "connection.autoconnect no "
             "%s",
             config->wifi_interface, config->name, config->ssid, config->password, ipv4_config);
     } else {
         // Open hotspot without password
+        // Note: connection.autoconnect no prevents auto-connection at boot (avoids zombie connections)
         written = snprintf(command, sizeof(command),
             "nmcli connection add type wifi ifname %s con-name %s ssid %s "
             "802-11-wireless.mode ap "
+            "connection.autoconnect no "
             "%s",
             config->wifi_interface, config->name, config->ssid, ipv4_config);
     }
