@@ -129,3 +129,21 @@ connection_result_t monitor_connection_progress(const char* ssid, int timeout_se
  * @return bool true if a saved connection exists, false otherwise
  */
 bool is_saved_connection(const char* ssid);
+
+/**
+ * @brief Initialize connection cancellation state
+ * Resets the cancellation flag to allow new connections
+ */
+void init_connection_cancel(void);
+
+/**
+ * @brief Request cancellation of ongoing connection attempt
+ * Sets a flag that will be checked during connection polling
+ */
+void request_connection_cancel(void);
+
+/**
+ * @brief Check if connection cancellation was requested
+ * @return bool true if cancellation was requested, false otherwise
+ */
+bool is_connection_cancelled(void);

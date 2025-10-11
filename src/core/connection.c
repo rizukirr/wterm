@@ -16,6 +16,24 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <time.h>
+
+// Global cancellation state for connection operations
+// Using volatile sig_atomic_t for thread-safety and signal-safety
+static volatile sig_atomic_t connection_cancelled = 0;
+
+void init_connection_cancel(void) {
+    connection_cancelled = 0;
+}
+
+void request_connection_cancel(void) {
+    connection_cancelled = 1;
+}
+
+bool is_connection_cancelled(void) {
+    return connection_cancelled != 0;
+}
 
 // Helper function to check if a saved connection exists for the given SSID
 static bool connection_exists(const char* ssid) {
@@ -87,8 +105,18 @@ static connection_result_t execute_nmcli_connect(const char* command, const char
 
     // Always verify the actual connection status, regardless of nmcli exit code
     // This handles cases where nmcli returns error but connection succeeds
-    // Wait up to 15 seconds for connection to establish
-    sleep(2); // Give NetworkManager a moment to start activation
+    // Wait up to 2 seconds for connection to establish (cancellable)
+    struct timespec sleep_time = {0, 100000000};  // 100ms
+    for (int i = 0; i < 20 && !is_connection_cancelled(); i++) {
+        nanosleep(&sleep_time, NULL);
+    }
+
+    // Check if cancelled during initial wait
+    if (is_connection_cancelled()) {
+        result.result = WTERM_ERROR_CANCELLED;
+        safe_string_copy(result.error_message, "Connection cancelled by user", sizeof(result.error_message));
+        return result;
+    }
 
     // Get WiFi interface for iw verification
     char wifi_interface[MAX_STR_INTERFACE];
@@ -97,6 +125,13 @@ static connection_result_t execute_nmcli_connect(const char* command, const char
     }
 
     for (int i = 0; i < 13; i++) {
+        // Check for cancellation request
+        if (is_connection_cancelled()) {
+            result.result = WTERM_ERROR_CANCELLED;
+            safe_string_copy(result.error_message, "Connection cancelled by user", sizeof(result.error_message));
+            return result;
+        }
+
         connection_status_t status = get_connection_status();
 
         // Check if we're connected to the target SSID via NetworkManager
@@ -169,7 +204,10 @@ static connection_result_t execute_nmcli_connect(const char* command, const char
             }
         }
 
-        sleep(1);
+        // Sleep for 1 second, but check cancellation every 100ms
+        for (int j = 0; j < 10 && !is_connection_cancelled(); j++) {
+            nanosleep(&sleep_time, NULL);
+        }
     }
 
     // Connection didn't establish in time
@@ -242,8 +280,23 @@ static wterm_result_t cleanup_zombie_before_connect(void) {
         pclose(fp);
     }
 
-    // Zombie detected (kernel associated but NM not aware)
-    // Perform aggressive cleanup
+    // Check if this is actually a zombie connection
+    // Zombie = kernel associated but NetworkManager NOT connected
+    bool is_zombie = (kernel_associated && !status.is_connected);
+
+    if (!is_zombie) {
+        // Not a zombie - kernel and NM are in sync
+        return WTERM_SUCCESS;
+    }
+
+    // Zombie detected - perform aggressive cleanup
+    // Note: User doesn't need to see technical details, just that we're preparing
+    fprintf(stderr, "Initializing connection...\n");
+
+    // Check if cancelled before starting cleanup
+    if (is_connection_cancelled()) {
+        return WTERM_ERROR_CANCELLED;
+    }
 
     // Step 1: Try to disconnect active NetworkManager connection if any
     if (status.is_connected && status.connection_name[0] != '\0') {
@@ -255,7 +308,15 @@ static wterm_result_t cleanup_zombie_before_connect(void) {
             NULL
         };
         safe_exec_check_silent("nmcli", args);
-        sleep(1);
+
+        // Cancellable sleep
+        struct timespec cleanup_sleep = {0, 100000000};  // 100ms
+        for (int i = 0; i < 10 && !is_connection_cancelled(); i++) {
+            nanosleep(&cleanup_sleep, NULL);
+        }
+        if (is_connection_cancelled()) {
+            return WTERM_ERROR_CANCELLED;
+        }
     }
 
     // Step 2: Force device-level disconnect (suppressing expected errors)
@@ -282,7 +343,14 @@ static wterm_result_t cleanup_zombie_before_connect(void) {
         waitpid(device_pid, &status, 0);
     }
 
-    sleep(1);
+    // Cancellable sleep
+    struct timespec cleanup_sleep = {0, 100000000};  // 100ms
+    for (int i = 0; i < 10 && !is_connection_cancelled(); i++) {
+        nanosleep(&cleanup_sleep, NULL);
+    }
+    if (is_connection_cancelled()) {
+        return WTERM_ERROR_CANCELLED;
+    }
 
     // Step 3: Check if still associated at kernel level
     bool still_associated = false;
@@ -301,7 +369,13 @@ static wterm_result_t cleanup_zombie_before_connect(void) {
         };
         safe_exec_check_silent("nmcli", unmanage_args);
 
-        sleep(1);
+        // Cancellable sleep
+        for (int i = 0; i < 10 && !is_connection_cancelled(); i++) {
+            nanosleep(&cleanup_sleep, NULL);
+        }
+        if (is_connection_cancelled()) {
+            return WTERM_ERROR_CANCELLED;
+        }
 
         char* const manage_args[] = {
             "nmcli",
@@ -314,7 +388,13 @@ static wterm_result_t cleanup_zombie_before_connect(void) {
         };
         safe_exec_check_silent("nmcli", manage_args);
 
-        sleep(2);
+        // Cancellable sleep (2 seconds = 20 * 100ms)
+        for (int i = 0; i < 20 && !is_connection_cancelled(); i++) {
+            nanosleep(&cleanup_sleep, NULL);
+        }
+        if (is_connection_cancelled()) {
+            return WTERM_ERROR_CANCELLED;
+        }
     }
 
     // Final verification
@@ -343,6 +423,9 @@ connection_result_t connect_to_open_network(const char* ssid) {
         return result;
     }
 
+    // Initialize cancellation state for this connection attempt
+    init_connection_cancel();
+
     // Escape SSID for shell safety
     char escaped_ssid[256];
     if (!shell_escape(ssid, escaped_ssid, sizeof(escaped_ssid))) {
@@ -352,7 +435,12 @@ connection_result_t connect_to_open_network(const char* ssid) {
     }
 
     // Clean up any zombie connections before attempting new connection
-    cleanup_zombie_before_connect();
+    wterm_result_t cleanup_result = cleanup_zombie_before_connect();
+    if (cleanup_result != WTERM_SUCCESS) {
+        result.result = WTERM_ERROR_NETWORK;
+        safe_string_copy(result.error_message, "Failed to cleanup zombie connection before connecting", sizeof(result.error_message));
+        return result;
+    }
 
     char command[512];
 
@@ -384,6 +472,9 @@ connection_result_t connect_to_secured_network(const char* ssid, const char* pas
         return result;
     }
 
+    // Initialize cancellation state for this connection attempt
+    init_connection_cancel();
+
     // Escape SSID for shell safety
     char escaped_ssid[256];
     if (!shell_escape(ssid, escaped_ssid, sizeof(escaped_ssid))) {
@@ -393,7 +484,12 @@ connection_result_t connect_to_secured_network(const char* ssid, const char* pas
     }
 
     // Clean up any zombie connections before attempting new connection
-    cleanup_zombie_before_connect();
+    wterm_result_t cleanup_result = cleanup_zombie_before_connect();
+    if (cleanup_result != WTERM_SUCCESS) {
+        result.result = WTERM_ERROR_NETWORK;
+        safe_string_copy(result.error_message, "Failed to cleanup zombie connection before connecting", sizeof(result.error_message));
+        return result;
+    }
 
     char command[1024];
 

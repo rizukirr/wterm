@@ -9,11 +9,44 @@
 #include "../../include/wterm/common.h"
 #include "../core/connection.h"
 #include "../core/hotspot_manager.h"
+#include "../utils/string_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <errno.h>
+
+// Thread data for background connection
+typedef struct {
+    char ssid[MAX_STR_SSID];
+    char password[MAX_STR_PASSWORD];
+    bool is_open;
+    bool is_saved;
+    connection_result_t result;
+    volatile sig_atomic_t is_done;  // Thread completion flag
+} connection_thread_data_t;
+
+// Thread function for background connection
+static void* connection_thread_func(void *arg) {
+    connection_thread_data_t *data = (connection_thread_data_t*)arg;
+
+    if (data->is_open) {
+        data->result = connect_to_open_network(data->ssid);
+    } else if (data->is_saved) {
+        data->result = connect_to_secured_network(data->ssid, "");
+    } else {
+        data->result = connect_to_secured_network(data->ssid, data->password);
+        // Clear password from memory after use
+        memset(data->password, 0, sizeof(data->password));
+    }
+
+    // Signal that thread is done
+    data->is_done = 1;
+
+    return NULL;
+}
 
 // Panel structure for internal use
 typedef struct {
@@ -849,26 +882,68 @@ static bool handle_connect_action(const network_info_t *network) {
         }
     }
 
-    // Show "Connecting..." message (non-blocking)
-    tb_clear();
+    // Prepare thread data for background connection
+    connection_thread_data_t thread_data = {0};
+    safe_string_copy(thread_data.ssid, network->ssid, sizeof(thread_data.ssid));
+    if (is_secured && !is_saved) {
+        safe_string_copy(thread_data.password, password, sizeof(thread_data.password));
+        thread_data.is_open = false;
+        thread_data.is_saved = false;
+        // Clear password from stack memory
+        memset(password, 0, sizeof(password));
+    } else {
+        thread_data.is_open = !is_secured;
+        thread_data.is_saved = is_saved;
+    }
+
+    // Start connection in background thread
+    pthread_t conn_thread;
+    if (pthread_create(&conn_thread, NULL, connection_thread_func, &thread_data) != 0) {
+        draw_message_modal("Failed to start connection thread", true, 0);
+        return true;
+    }
+
+    // Poll for ESC key while connection is in progress
     int width = tb_width();
     int height = tb_height();
-    char msg[256];
-    snprintf(msg, sizeof(msg), "Connecting to '%s'... (please wait)", network->ssid);
-    tb_printf(width / 2 - strlen(msg) / 2, height / 2, TB_CYAN | TB_BOLD, TB_DEFAULT, "%s", msg);
-    tb_present();
+    bool cancelled_by_user = false;
 
-    // Perform connection
-    connection_result_t conn_result;
+    // Poll until thread is done
+    while (!thread_data.is_done) {
+        // Show cancellable progress message
+        tb_clear();
+        char msg[256];
+        if (cancelled_by_user) {
+            snprintf(msg, sizeof(msg), "Cancelling connection to '%s'...", network->ssid);
+            tb_printf(width / 2 - strlen(msg) / 2, height / 2, TB_YELLOW | TB_BOLD, TB_DEFAULT, "%s", msg);
+        } else {
+            snprintf(msg, sizeof(msg), "Connecting to '%s'... (ESC to cancel)", network->ssid);
+            tb_printf(width / 2 - strlen(msg) / 2, height / 2, TB_CYAN | TB_BOLD, TB_DEFAULT, "%s", msg);
+        }
+        tb_present();
 
-    if (is_secured && !is_saved) {
-        conn_result = connect_to_secured_network(network->ssid, password);
-        // Clear password from memory
-        memset(password, 0, sizeof(password));
-    } else if (is_secured && is_saved) {
-        conn_result = connect_to_secured_network(network->ssid, "");
-    } else {
-        conn_result = connect_to_open_network(network->ssid);
+        // Check for ESC key (100ms timeout to match connection polling)
+        struct tb_event ev;
+        int result = tb_peek_event(&ev, 100);
+        if (result > 0 && ev.type == TB_EVENT_KEY && !cancelled_by_user) {
+            if (ev.key == TB_KEY_ESC || ev.key == TB_KEY_CTRL_C) {
+                request_connection_cancel();
+                cancelled_by_user = true;
+            }
+        }
+    }
+
+    // Wait for thread to fully finish (should be immediate at this point)
+    pthread_join(conn_thread, NULL);
+
+    // Get connection result
+    connection_result_t conn_result = thread_data.result;
+
+    // Handle cancellation separately (no error modal needed)
+    if (conn_result.result == WTERM_ERROR_CANCELLED) {
+        // User cancelled - just return to network list
+        // Brief message already shown during cancellation
+        return true;
     }
 
     // Show result (brief flash, no key press required)
