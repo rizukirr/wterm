@@ -189,6 +189,144 @@ static connection_result_t execute_nmcli_connect(const char* command, const char
     return result;
 }
 
+/**
+ * @brief Clean up zombie connections before attempting new connection
+ *
+ * Detects and forcefully cleans up any kernel-level WiFi associations
+ * that NetworkManager is unaware of. This prevents connection failures
+ * caused by the kernel already being associated with another network.
+ *
+ * @return wterm_result_t WTERM_SUCCESS if cleanup successful or no cleanup needed
+ */
+static wterm_result_t cleanup_zombie_before_connect(void) {
+    // Get WiFi interface
+    char wifi_interface[MAX_STR_INTERFACE];
+    if (!iw_get_first_wifi_interface(wifi_interface, sizeof(wifi_interface))) {
+        safe_string_copy(wifi_interface, "wlan0", sizeof(wifi_interface));
+    }
+
+    // Check for kernel-level association
+    bool kernel_associated = false;
+    iw_check_association(wifi_interface, &kernel_associated);
+
+    // If no kernel association, nothing to clean up
+    if (!kernel_associated) {
+        return WTERM_SUCCESS;
+    }
+
+    // Get current NetworkManager status
+    connection_status_t status = {0};
+    FILE *fp = popen("nmcli -t -f NAME,TYPE,DEVICE connection show --active", "r");
+    if (fp) {
+        char buffer[256];
+        while (fgets(buffer, sizeof(buffer), fp)) {
+            buffer[strcspn(buffer, "\n")] = '\0';
+
+            char *first_colon = strchr(buffer, ':');
+            if (!first_colon) continue;
+
+            char *second_colon = strchr(first_colon + 1, ':');
+            if (!second_colon) continue;
+
+            *first_colon = '\0';
+            *second_colon = '\0';
+            const char *name = buffer;
+            const char *type = first_colon + 1;
+
+            if (strcmp(type, "802-11-wireless") == 0) {
+                safe_string_copy(status.connection_name, name, sizeof(status.connection_name));
+                status.is_connected = true;
+                break;
+            }
+        }
+        pclose(fp);
+    }
+
+    // Zombie detected (kernel associated but NM not aware)
+    // Perform aggressive cleanup
+
+    // Step 1: Try to disconnect active NetworkManager connection if any
+    if (status.is_connected && status.connection_name[0] != '\0') {
+        char* const args[] = {
+            "nmcli",
+            "connection",
+            "down",
+            status.connection_name,
+            NULL
+        };
+        safe_exec_check_silent("nmcli", args);
+        sleep(1);
+    }
+
+    // Step 2: Force device-level disconnect (suppressing expected errors)
+    pid_t device_pid = fork();
+    if (device_pid == 0) {
+        // Child: redirect stderr to /dev/null
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+
+        char* const device_args[] = {
+            "nmcli",
+            "device",
+            "disconnect",
+            (char*)wifi_interface,
+            NULL
+        };
+        execvp("nmcli", device_args);
+        _exit(127);
+    } else if (device_pid > 0) {
+        int status;
+        waitpid(device_pid, &status, 0);
+    }
+
+    sleep(1);
+
+    // Step 3: Check if still associated at kernel level
+    bool still_associated = false;
+    iw_check_association(wifi_interface, &still_associated);
+
+    // Step 4: If still associated, force device reset via management toggle
+    if (still_associated) {
+        char* const unmanage_args[] = {
+            "nmcli",
+            "device",
+            "set",
+            (char*)wifi_interface,
+            "managed",
+            "no",
+            NULL
+        };
+        safe_exec_check_silent("nmcli", unmanage_args);
+
+        sleep(1);
+
+        char* const manage_args[] = {
+            "nmcli",
+            "device",
+            "set",
+            (char*)wifi_interface,
+            "managed",
+            "yes",
+            NULL
+        };
+        safe_exec_check_silent("nmcli", manage_args);
+
+        sleep(2);
+    }
+
+    // Final verification
+    iw_check_association(wifi_interface, &still_associated);
+    if (still_associated) {
+        // Cleanup failed, but continue anyway - nmcli might still work
+        return WTERM_ERROR_NETWORK;
+    }
+
+    return WTERM_SUCCESS;
+}
+
 connection_result_t connect_to_open_network(const char* ssid) {
     connection_result_t result = {0};
 
@@ -212,6 +350,9 @@ connection_result_t connect_to_open_network(const char* ssid) {
         safe_string_copy(result.error_message, "SSID too long for shell escaping", sizeof(result.error_message));
         return result;
     }
+
+    // Clean up any zombie connections before attempting new connection
+    cleanup_zombie_before_connect();
 
     char command[512];
 
@@ -250,6 +391,9 @@ connection_result_t connect_to_secured_network(const char* ssid, const char* pas
         safe_string_copy(result.error_message, "SSID too long for shell escaping", sizeof(result.error_message));
         return result;
     }
+
+    // Clean up any zombie connections before attempting new connection
+    cleanup_zombie_before_connect();
 
     char command[1024];
 
