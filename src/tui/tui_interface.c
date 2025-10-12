@@ -257,7 +257,7 @@ static void render_available_networks(tui_panel_t *panel, const network_list_t *
     }
 
     // Scroll indicator
-    if (networks->count > visible_lines && networks->count > 0) {
+    if (networks->count > visible_lines && networks->count > 1) {
         int indicator_y = panel->y + 1;
         int progress = (panel->selected * (visible_lines - 1)) / (networks->count - 1);
         tb_set_cell(panel->x + panel->width - 2, indicator_y + progress, 0x2588, TB_CYAN, TB_DEFAULT);
@@ -455,8 +455,10 @@ static bool draw_password_input_modal(const char *ssid, char *password_out, size
         if (ev.type == TB_EVENT_KEY) {
             if (ev.key == TB_KEY_ENTER) {
                 if (cursor_pos >= 8) {  // WPA2 minimum
-                    strncpy(password_out, buffer, max_len - 1);
-                    password_out[max_len - 1] = '\0';
+                    // Safe copy with length check
+                    size_t copy_len = (cursor_pos < (int)(max_len - 1)) ? (size_t)cursor_pos : (max_len - 1);
+                    memcpy(password_out, buffer, copy_len);
+                    password_out[copy_len] = '\0';
                     explicit_bzero(buffer, sizeof(buffer));  // Clear buffer
                     return true;
                 }
@@ -715,8 +717,10 @@ static bool draw_text_input_modal(const char *title, const char *prompt,
         if (ev.type == TB_EVENT_KEY) {
             if (ev.key == TB_KEY_ENTER) {
                 if (cursor_pos > 0) {
-                    strncpy(output_buffer, buffer, max_len - 1);
-                    output_buffer[max_len - 1] = '\0';
+                    // Safe copy with length check
+                    size_t copy_len = (cursor_pos < (int)(max_len - 1)) ? (size_t)cursor_pos : (max_len - 1);
+                    memcpy(output_buffer, buffer, copy_len);
+                    output_buffer[copy_len] = '\0';
                     memset(buffer, 0, sizeof(buffer));
                     return true;
                 }
@@ -829,7 +833,7 @@ static void render_hotspot_list(tui_panel_t *panel, const hotspot_list_t *hotspo
     }
 
     // Scroll indicator
-    if (hotspots->count > visible_lines && hotspots->count > 0) {
+    if (hotspots->count > visible_lines && hotspots->count > 1) {
         int indicator_y = panel->y + 1;
         int progress = (panel->selected * (visible_lines - 1)) / (hotspots->count - 1);
         tb_set_cell(panel->x + panel->width - 2, indicator_y + progress, 0x2588, TB_CYAN, TB_DEFAULT);
