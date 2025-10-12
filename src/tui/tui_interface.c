@@ -3,6 +3,7 @@
  * @brief Production TUI implementation for wterm
  */
 
+#define _DEFAULT_SOURCE  // For explicit_bzero
 #define TB_IMPL
 #include "../../include/external/termbox2.h"
 #include "../../include/wterm/tui_interface.h"
@@ -39,7 +40,7 @@ static void* connection_thread_func(void *arg) {
     } else {
         data->result = connect_to_secured_network(data->ssid, data->password);
         // Clear password from memory after use
-        memset(data->password, 0, sizeof(data->password));
+        explicit_bzero(data->password, sizeof(data->password));
     }
 
     // Signal that thread is done
@@ -90,7 +91,6 @@ static void draw_panel_border(tui_panel_t *panel) {
     tb_set_cell(panel->x + panel->width - 1, panel->y, 0x2510, fg, bg);  // ┐
 
     // Title
-    int title_len = strlen(panel->title);
     int title_x = panel->x + 2;
     tb_printf(title_x, panel->y, fg, bg, " %s ", panel->title);
 
@@ -148,6 +148,7 @@ static void move_selection(tui_panel_t *panel, int direction) {
 // Rendering Functions
 // ============================================================================
 
+#if 0  // Unused function - may be useful for future saved networks panel
 static void render_saved_networks_list(tui_panel_t *panel, const network_list_t *networks) {
     int visible_lines = panel->height - 2;
     int start = panel->scroll_offset;
@@ -200,6 +201,7 @@ static void render_saved_networks_list(tui_panel_t *panel, const network_list_t 
         tb_set_cell(panel->x + panel->width - 2, indicator_y + progress, 0x2588, TB_CYAN, TB_DEFAULT);
     }
 }
+#endif  // End of unused render_saved_networks_list
 
 static void render_available_networks(tui_panel_t *panel, const network_list_t *networks) {
     int visible_lines = panel->height - 2;
@@ -240,7 +242,7 @@ static void render_available_networks(tui_panel_t *panel, const network_list_t *
         tb_printf(x + 2, y, fg, bg, "%s", arrow);
 
         // SSID (left-aligned, 20 chars)
-        char ssid_buf[32];
+        char ssid_buf[40];  // Larger buffer to avoid truncation warnings
         snprintf(ssid_buf, sizeof(ssid_buf), "%-18s", networks->networks[i].ssid);
         tb_printf(x + 4, y, fg, bg, "%s", ssid_buf);
 
@@ -455,12 +457,12 @@ static bool draw_password_input_modal(const char *ssid, char *password_out, size
                 if (cursor_pos >= 8) {  // WPA2 minimum
                     strncpy(password_out, buffer, max_len - 1);
                     password_out[max_len - 1] = '\0';
-                    memset(buffer, 0, sizeof(buffer));  // Clear buffer
+                    explicit_bzero(buffer, sizeof(buffer));  // Clear buffer
                     return true;
                 }
                 // If too short, beep or ignore (stay in loop)
             } else if (ev.key == TB_KEY_ESC) {
-                memset(buffer, 0, sizeof(buffer));  // Clear buffer
+                explicit_bzero(buffer, sizeof(buffer));  // Clear buffer
                 return false;
             } else if (ev.key == TB_KEY_BACKSPACE || ev.key == TB_KEY_BACKSPACE2) {
                 if (cursor_pos > 0) {
@@ -890,7 +892,7 @@ static bool handle_connect_action(const network_info_t *network) {
         thread_data.is_open = false;
         thread_data.is_saved = false;
         // Clear password from stack memory
-        memset(password, 0, sizeof(password));
+        explicit_bzero(password, sizeof(password));
     } else {
         thread_data.is_open = !is_secured;
         thread_data.is_saved = is_saved;
