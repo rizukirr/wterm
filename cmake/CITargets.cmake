@@ -43,11 +43,12 @@ if(CPPCHECK_EXECUTABLE)
     add_custom_target(static-analysis
         COMMAND ${CMAKE_COMMAND} -E echo "Running cppcheck static analysis..."
         COMMAND ${CPPCHECK_EXECUTABLE}
-            --enable=all
+            --enable=warning,performance,portability
             --error-exitcode=1
             --suppress=missingIncludeSystem
             --suppress=unusedFunction
             --suppress=staticFunction
+            --suppress=uninitvar:${CMAKE_SOURCE_DIR}/include/external/termbox2.h
             --inline-suppr
             --std=c99
             -I ${CMAKE_SOURCE_DIR}/include

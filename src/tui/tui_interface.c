@@ -3,17 +3,51 @@
  * @brief Production TUI implementation for wterm
  */
 
+#define _DEFAULT_SOURCE  // For explicit_bzero
 #define TB_IMPL
 #include "../../include/external/termbox2.h"
 #include "../../include/wterm/tui_interface.h"
 #include "../../include/wterm/common.h"
 #include "../core/connection.h"
 #include "../core/hotspot_manager.h"
+#include "../utils/string_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <errno.h>
+
+// Thread data for background connection
+typedef struct {
+    char ssid[MAX_STR_SSID];
+    char password[MAX_STR_PASSWORD];
+    bool is_open;
+    bool is_saved;
+    connection_result_t result;
+    volatile sig_atomic_t is_done;  // Thread completion flag
+} connection_thread_data_t;
+
+// Thread function for background connection
+static void* connection_thread_func(void *arg) {
+    connection_thread_data_t *data = (connection_thread_data_t*)arg;
+
+    if (data->is_open) {
+        data->result = connect_to_open_network(data->ssid);
+    } else if (data->is_saved) {
+        data->result = connect_to_secured_network(data->ssid, "");
+    } else {
+        data->result = connect_to_secured_network(data->ssid, data->password);
+        // Clear password from memory after use
+        explicit_bzero(data->password, sizeof(data->password));
+    }
+
+    // Signal that thread is done
+    data->is_done = 1;
+
+    return NULL;
+}
 
 // Panel structure for internal use
 typedef struct {
@@ -57,7 +91,6 @@ static void draw_panel_border(tui_panel_t *panel) {
     tb_set_cell(panel->x + panel->width - 1, panel->y, 0x2510, fg, bg);  // ┐
 
     // Title
-    int title_len = strlen(panel->title);
     int title_x = panel->x + 2;
     tb_printf(title_x, panel->y, fg, bg, " %s ", panel->title);
 
@@ -115,6 +148,7 @@ static void move_selection(tui_panel_t *panel, int direction) {
 // Rendering Functions
 // ============================================================================
 
+#if 0  // Unused function - may be useful for future saved networks panel
 static void render_saved_networks_list(tui_panel_t *panel, const network_list_t *networks) {
     int visible_lines = panel->height - 2;
     int start = panel->scroll_offset;
@@ -167,6 +201,7 @@ static void render_saved_networks_list(tui_panel_t *panel, const network_list_t 
         tb_set_cell(panel->x + panel->width - 2, indicator_y + progress, 0x2588, TB_CYAN, TB_DEFAULT);
     }
 }
+#endif  // End of unused render_saved_networks_list
 
 static void render_available_networks(tui_panel_t *panel, const network_list_t *networks) {
     int visible_lines = panel->height - 2;
@@ -207,7 +242,7 @@ static void render_available_networks(tui_panel_t *panel, const network_list_t *
         tb_printf(x + 2, y, fg, bg, "%s", arrow);
 
         // SSID (left-aligned, 20 chars)
-        char ssid_buf[32];
+        char ssid_buf[40];  // Larger buffer to avoid truncation warnings
         snprintf(ssid_buf, sizeof(ssid_buf), "%-18s", networks->networks[i].ssid);
         tb_printf(x + 4, y, fg, bg, "%s", ssid_buf);
 
@@ -222,7 +257,7 @@ static void render_available_networks(tui_panel_t *panel, const network_list_t *
     }
 
     // Scroll indicator
-    if (networks->count > visible_lines && networks->count > 0) {
+    if (networks->count > visible_lines && networks->count > 1) {
         int indicator_y = panel->y + 1;
         int progress = (panel->selected * (visible_lines - 1)) / (networks->count - 1);
         tb_set_cell(panel->x + panel->width - 2, indicator_y + progress, 0x2588, TB_CYAN, TB_DEFAULT);
@@ -420,14 +455,16 @@ static bool draw_password_input_modal(const char *ssid, char *password_out, size
         if (ev.type == TB_EVENT_KEY) {
             if (ev.key == TB_KEY_ENTER) {
                 if (cursor_pos >= 8) {  // WPA2 minimum
-                    strncpy(password_out, buffer, max_len - 1);
-                    password_out[max_len - 1] = '\0';
-                    memset(buffer, 0, sizeof(buffer));  // Clear buffer
+                    // Safe copy with length check
+                    size_t copy_len = (cursor_pos < (int)(max_len - 1)) ? (size_t)cursor_pos : (max_len - 1);
+                    memcpy(password_out, buffer, copy_len);
+                    password_out[copy_len] = '\0';
+                    explicit_bzero(buffer, sizeof(buffer));  // Clear buffer
                     return true;
                 }
                 // If too short, beep or ignore (stay in loop)
             } else if (ev.key == TB_KEY_ESC) {
-                memset(buffer, 0, sizeof(buffer));  // Clear buffer
+                explicit_bzero(buffer, sizeof(buffer));  // Clear buffer
                 return false;
             } else if (ev.key == TB_KEY_BACKSPACE || ev.key == TB_KEY_BACKSPACE2) {
                 if (cursor_pos > 0) {
@@ -680,8 +717,10 @@ static bool draw_text_input_modal(const char *title, const char *prompt,
         if (ev.type == TB_EVENT_KEY) {
             if (ev.key == TB_KEY_ENTER) {
                 if (cursor_pos > 0) {
-                    strncpy(output_buffer, buffer, max_len - 1);
-                    output_buffer[max_len - 1] = '\0';
+                    // Safe copy with length check
+                    size_t copy_len = (cursor_pos < (int)(max_len - 1)) ? (size_t)cursor_pos : (max_len - 1);
+                    memcpy(output_buffer, buffer, copy_len);
+                    output_buffer[copy_len] = '\0';
                     memset(buffer, 0, sizeof(buffer));
                     return true;
                 }
@@ -794,7 +833,7 @@ static void render_hotspot_list(tui_panel_t *panel, const hotspot_list_t *hotspo
     }
 
     // Scroll indicator
-    if (hotspots->count > visible_lines && hotspots->count > 0) {
+    if (hotspots->count > visible_lines && hotspots->count > 1) {
         int indicator_y = panel->y + 1;
         int progress = (panel->selected * (visible_lines - 1)) / (hotspots->count - 1);
         tb_set_cell(panel->x + panel->width - 2, indicator_y + progress, 0x2588, TB_CYAN, TB_DEFAULT);
@@ -849,26 +888,68 @@ static bool handle_connect_action(const network_info_t *network) {
         }
     }
 
-    // Show "Connecting..." message (non-blocking)
-    tb_clear();
+    // Prepare thread data for background connection
+    connection_thread_data_t thread_data = {0};
+    safe_string_copy(thread_data.ssid, network->ssid, sizeof(thread_data.ssid));
+    if (is_secured && !is_saved) {
+        safe_string_copy(thread_data.password, password, sizeof(thread_data.password));
+        thread_data.is_open = false;
+        thread_data.is_saved = false;
+        // Clear password from stack memory
+        explicit_bzero(password, sizeof(password));
+    } else {
+        thread_data.is_open = !is_secured;
+        thread_data.is_saved = is_saved;
+    }
+
+    // Start connection in background thread
+    pthread_t conn_thread;
+    if (pthread_create(&conn_thread, NULL, connection_thread_func, &thread_data) != 0) {
+        draw_message_modal("Failed to start connection thread", true, 0);
+        return true;
+    }
+
+    // Poll for ESC key while connection is in progress
     int width = tb_width();
     int height = tb_height();
-    char msg[256];
-    snprintf(msg, sizeof(msg), "Connecting to '%s'... (please wait)", network->ssid);
-    tb_printf(width / 2 - strlen(msg) / 2, height / 2, TB_CYAN | TB_BOLD, TB_DEFAULT, "%s", msg);
-    tb_present();
+    bool cancelled_by_user = false;
 
-    // Perform connection
-    connection_result_t conn_result;
+    // Poll until thread is done
+    while (!thread_data.is_done) {
+        // Show cancellable progress message
+        tb_clear();
+        char msg[256];
+        if (cancelled_by_user) {
+            snprintf(msg, sizeof(msg), "Cancelling connection to '%s'...", network->ssid);
+            tb_printf(width / 2 - strlen(msg) / 2, height / 2, TB_YELLOW | TB_BOLD, TB_DEFAULT, "%s", msg);
+        } else {
+            snprintf(msg, sizeof(msg), "Connecting to '%s'... (ESC to cancel)", network->ssid);
+            tb_printf(width / 2 - strlen(msg) / 2, height / 2, TB_CYAN | TB_BOLD, TB_DEFAULT, "%s", msg);
+        }
+        tb_present();
 
-    if (is_secured && !is_saved) {
-        conn_result = connect_to_secured_network(network->ssid, password);
-        // Clear password from memory
-        memset(password, 0, sizeof(password));
-    } else if (is_secured && is_saved) {
-        conn_result = connect_to_secured_network(network->ssid, "");
-    } else {
-        conn_result = connect_to_open_network(network->ssid);
+        // Check for ESC key (100ms timeout to match connection polling)
+        struct tb_event ev;
+        int result = tb_peek_event(&ev, 100);
+        if (result > 0 && ev.type == TB_EVENT_KEY && !cancelled_by_user) {
+            if (ev.key == TB_KEY_ESC || ev.key == TB_KEY_CTRL_C) {
+                request_connection_cancel();
+                cancelled_by_user = true;
+            }
+        }
+    }
+
+    // Wait for thread to fully finish (should be immediate at this point)
+    pthread_join(conn_thread, NULL);
+
+    // Get connection result
+    connection_result_t conn_result = thread_data.result;
+
+    // Handle cancellation separately (no error modal needed)
+    if (conn_result.result == WTERM_ERROR_CANCELLED) {
+        // User cancelled - just return to network list
+        // Brief message already shown during cancellation
+        return true;
     }
 
     // Show result (brief flash, no key press required)

@@ -43,7 +43,8 @@ typedef enum {
     WTERM_ERROR_INVALID_INPUT = 5,
     WTERM_ERROR_HOTSPOT = 6,
     WTERM_ERROR_INTERFACE = 7,
-    WTERM_ERROR_PERMISSION = 8
+    WTERM_ERROR_PERMISSION = 8,
+    WTERM_ERROR_CANCELLED = 9
 } wterm_result_t;
 
 // WiFi security types
