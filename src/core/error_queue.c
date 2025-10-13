@@ -77,11 +77,12 @@ void error_queue_push(const char *message, bool is_error) {
         return;  // Invalid input
     }
 
+    pthread_mutex_lock(&error_queue.mutex);
+
     if (!error_queue.initialized) {
+        pthread_mutex_unlock(&error_queue.mutex);
         return;  // Queue not initialized (CLI mode)
     }
-
-    pthread_mutex_lock(&error_queue.mutex);
 
     // Copy message to current head position
     error_entry_t *entry = &error_queue.entries[error_queue.head];
@@ -103,11 +104,13 @@ void error_queue_push(const char *message, bool is_error) {
 }
 
 bool error_queue_has_errors(void) {
+    pthread_mutex_lock(&error_queue.mutex);
+
     if (!error_queue.initialized) {
+        pthread_mutex_unlock(&error_queue.mutex);
         return false;  // Queue not initialized
     }
 
-    pthread_mutex_lock(&error_queue.mutex);
     bool has_errors = (error_queue.count > 0);
     pthread_mutex_unlock(&error_queue.mutex);
 
@@ -119,11 +122,12 @@ bool error_queue_pop(char *message_out, size_t max_len, bool *is_error_out) {
         return false;  // Invalid output buffer
     }
 
+    pthread_mutex_lock(&error_queue.mutex);
+
     if (!error_queue.initialized) {
+        pthread_mutex_unlock(&error_queue.mutex);
         return false;  // Queue not initialized
     }
-
-    pthread_mutex_lock(&error_queue.mutex);
 
     // Check if queue is empty
     if (error_queue.count == 0) {
@@ -153,11 +157,12 @@ bool error_queue_pop(char *message_out, size_t max_len, bool *is_error_out) {
 }
 
 void error_queue_clear(void) {
+    pthread_mutex_lock(&error_queue.mutex);
+
     if (!error_queue.initialized) {
+        pthread_mutex_unlock(&error_queue.mutex);
         return;  // Queue not initialized
     }
-
-    pthread_mutex_lock(&error_queue.mutex);
 
     // Reset queue to empty state
     error_queue.head = 0;
