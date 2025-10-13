@@ -361,7 +361,7 @@ wterm_result_t disconnect_current_network(void) {
   if (status.is_connected && status.connection_name[0] != '\0') {
     char *const args[] = {"nmcli", "connection", "down", status.connection_name,
                           NULL};
-    return safe_exec_check("nmcli", args);
+    return safe_exec_check_silent("nmcli", args);
   }
 
   // No active connection to disconnect

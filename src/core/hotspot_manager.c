@@ -6,6 +6,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "hotspot_manager.h"
 #include "error_handler.h"
+#include "error_queue.h"
 #include "../utils/string_utils.h"
 #include "../utils/safe_exec.h"
 #include "../utils/input_sanitizer.h"
@@ -32,6 +33,8 @@ static wterm_result_t load_all_configs(void);
 static char *get_config_file_path(const char *name);
 static wterm_result_t write_config_file(const char *file_path, const hotspot_config_t *config);
 static wterm_result_t execute_nmcli_command(const char *command, char *output, size_t output_size);
+static wterm_result_t execute_nmcli_command_silent(const char *command, char *output, size_t output_size);
+static void detect_gateway_ip(char *gateway_ip, size_t size);
 
 // NAT management function declarations
 static wterm_result_t get_default_route_interface(char *interface, size_t size);
@@ -92,12 +95,12 @@ wterm_result_t hotspot_create_config(const hotspot_config_t *config) {
         bool supports_5ghz = false;
         if (iw_check_5ghz_support(config->wifi_interface, &supports_5ghz) == WTERM_SUCCESS) {
             if (!supports_5ghz) {
-                fprintf(stderr, "Error: Interface %s does not support 5GHz band\n",
+                REPORT_ERROR(true, "Error: Interface %s does not support 5GHz band",
                         config->wifi_interface);
                 return WTERM_ERROR_GENERAL;
             }
         } else {
-            fprintf(stderr, "Warning: Could not verify 5GHz support for interface %s\n",
+            REPORT_ERROR(false, "Warning: Could not verify 5GHz support for interface %s",
                     config->wifi_interface);
         }
     }
@@ -126,6 +129,8 @@ wterm_result_t hotspot_start(const char *name, hotspot_status_t *status) {
         return WTERM_ERROR_INVALID_INPUT;
     }
 
+    char output[512];
+
     // Find configuration
     hotspot_config_t *config = NULL;
     for (int i = 0; i < saved_configs.count; i++) {
@@ -139,50 +144,96 @@ wterm_result_t hotspot_start(const char *name, hotspot_status_t *status) {
         return WTERM_ERROR_GENERAL; // Configuration not found
     }
 
-    // Build nmcli command for hotspot creation using compatible syntax
-    char command[2048];  // Increased buffer size
+    // Auto-detect gateway IP if not set (for old configs without gateway_ip)
+    if (!config->gateway_ip[0]) {
+        detect_gateway_ip(config->gateway_ip, sizeof(config->gateway_ip));
 
-    // Build complete command with all necessary parameters
-    int written;
-    const char *ipv4_config = (config->share_method == HOTSPOT_SHARE_NONE) ?
-        "ipv4.method auto" : "ipv4.method shared ipv4.addresses 192.168.12.1/24";
+        // Save the updated config back to disk
+        hotspot_save_config_to_file(config);
+    }
 
-    if (config->password[0] != '\0') {
-        // Secured hotspot with password
-        // Note: connection.autoconnect no prevents auto-connection at boot (avoids zombie connections)
-        written = snprintf(command, sizeof(command),
-            "nmcli connection add type wifi ifname %s con-name %s ssid %s "
-            "802-11-wireless.mode ap "
-            "802-11-wireless-security.key-mgmt wpa-psk "
-            "802-11-wireless-security.psk \"%s\" "
-            "connection.autoconnect no "
-            "%s",
-            config->wifi_interface, config->name, config->ssid, config->password, ipv4_config);
+    // Validate gateway IP is set (should always pass after auto-detection)
+    if (!config->gateway_ip[0]) {
+        REPORT_ERROR(true, "Hotspot configuration error: failed to detect gateway_ip");
+        return WTERM_ERROR_INVALID_INPUT;
+    }
+
+    // Disconnect the WiFi interface if it's currently connected
+    // (A WiFi interface can't be a client and AP at the same time - single radio limitation)
+    char disconnect_cmd[512];
+    snprintf(disconnect_cmd, sizeof(disconnect_cmd),
+             "nmcli device disconnect %s 2>/dev/null", config->wifi_interface);
+    execute_nmcli_command_silent(disconnect_cmd, output, sizeof(output));
+    // Ignore errors - interface might not be connected
+
+    // Check if NetworkManager connection already exists
+    char check_command[256];
+    snprintf(check_command, sizeof(check_command),
+             "nmcli -t -f NAME connection show | grep -q '^%s$'", config->name);
+
+    wterm_result_t check_result = execute_nmcli_command(check_command, output, sizeof(output));
+    bool connection_exists = (check_result == WTERM_SUCCESS);
+
+    if (connection_exists) {
+        // Connection exists - update its settings to ensure correct configuration
+        char modify_cmd[512];
+
+        // Fix IPv4 method to "shared" using configured gateway IP
+        snprintf(modify_cmd, sizeof(modify_cmd),
+                 "nmcli connection modify %s ipv4.method shared ipv4.addresses %s/24 2>/dev/null",
+                 config->name, config->gateway_ip);
+        execute_nmcli_command(modify_cmd, output, sizeof(output)); // Ignore errors
+
+        // Ensure band is configured (default to 2.4GHz if not set)
+        snprintf(modify_cmd, sizeof(modify_cmd),
+                 "nmcli connection modify %s 802-11-wireless.band bg 2>/dev/null",
+                 config->name);
+        execute_nmcli_command(modify_cmd, output, sizeof(output)); // Ignore errors
     } else {
-        // Open hotspot without password
-        // Note: connection.autoconnect no prevents auto-connection at boot (avoids zombie connections)
-        written = snprintf(command, sizeof(command),
-            "nmcli connection add type wifi ifname %s con-name %s ssid %s "
-            "802-11-wireless.mode ap "
-            "connection.autoconnect no "
-            "%s",
-            config->wifi_interface, config->name, config->ssid, ipv4_config);
+        // Connection doesn't exist - create it
+        char command[2048];
+        int written;
+
+        // Build IPv4 configuration string with configured gateway IP
+        char ipv4_config[128];
+        snprintf(ipv4_config, sizeof(ipv4_config),
+                 "ipv4.method shared ipv4.addresses %s/24", config->gateway_ip);
+
+        if (config->password[0] != '\0') {
+            // Secured hotspot with password
+            written = snprintf(command, sizeof(command),
+                "nmcli connection add type wifi ifname %s con-name %s ssid %s "
+                "802-11-wireless.mode ap "
+                "802-11-wireless-security.key-mgmt wpa-psk "
+                "802-11-wireless-security.psk \"%s\" "
+                "connection.autoconnect no "
+                "%s",
+                config->wifi_interface, config->name, config->ssid, config->password, ipv4_config);
+        } else {
+            // Open hotspot without password
+            written = snprintf(command, sizeof(command),
+                "nmcli connection add type wifi ifname %s con-name %s ssid %s "
+                "802-11-wireless.mode ap "
+                "connection.autoconnect no "
+                "%s",
+                config->wifi_interface, config->name, config->ssid, ipv4_config);
+        }
+
+        if (written >= (int)sizeof(command)) {
+            return WTERM_ERROR_GENERAL;
+        }
+
+        // Execute command to create connection
+        wterm_result_t result = execute_nmcli_command(command, output, sizeof(output));
+        if (result != WTERM_SUCCESS) {
+            return result;
+        }
     }
 
-    if (written >= (int)sizeof(command)) {
-        return WTERM_ERROR_GENERAL;
-    }
-
-    // Execute command
-    char output[512];
-    wterm_result_t result = execute_nmcli_command(command, output, sizeof(output));
-    if (result != WTERM_SUCCESS) {
-        return result;
-    }
-
-    // Start the connection
+    // Start/activate the connection
+    char command[256];
     snprintf(command, sizeof(command), "nmcli connection up %s", config->name);
-    result = execute_nmcli_command(command, output, sizeof(output));
+    wterm_result_t result = execute_nmcli_command(command, output, sizeof(output));
     if (result != WTERM_SUCCESS) {
         return result;
     }
@@ -196,16 +247,8 @@ wterm_result_t hotspot_start(const char *name, hotspot_status_t *status) {
             char subnet[64];
             snprintf(subnet, sizeof(subnet), "%s", config->gateway_ip);
 
-            // Set up NAT rules
-            wterm_result_t nat_result = setup_nat_rules(config->wifi_interface, inet_iface, subnet);
-            if (nat_result == WTERM_SUCCESS) {
-                fprintf(stdout, "Internet sharing configured: %s → %s\n", inet_iface, config->wifi_interface);
-            } else {
-                fprintf(stderr, "Warning: Failed to configure NAT rules\n");
-                // Continue anyway - hotspot still works without internet
-            }
-        } else {
-            fprintf(stdout, "No internet connection detected - hotspot will work without internet\n");
+            // Set up NAT rules (silently)
+            setup_nat_rules(config->wifi_interface, inet_iface, subnet);
         }
     }
 
@@ -240,25 +283,24 @@ wterm_result_t hotspot_stop(const char *name) {
             }
         }
 
-        // Clean up NAT rules before stopping hotspot
+        // Clean up NAT rules before stopping hotspot (silently)
         if (config) {
             cleanup_nat_rules(config->wifi_interface, config->gateway_ip);
-            fprintf(stdout, "NAT rules cleaned up\n");
         }
     }
 
     char command[256];
     if (name) {
-        // Stop specific hotspot
-        snprintf(command, sizeof(command), "nmcli connection down %s", name);
+        // Stop specific hotspot (silently - ignore errors if already stopped)
+        snprintf(command, sizeof(command), "nmcli connection down %s 2>/dev/null", name);
     } else {
         // Stop all active wifi connections in AP mode
         snprintf(command, sizeof(command),
-                "nmcli -t -f NAME,TYPE connection show --active | grep wifi | cut -d: -f1 | xargs -I {} nmcli connection down {}");
+                "nmcli -t -f NAME,TYPE connection show --active | grep wifi | cut -d: -f1 | xargs -I {} nmcli connection down {} 2>/dev/null");
     }
 
     char output[512];
-    return execute_nmcli_command(command, output, sizeof(output));
+    return execute_nmcli_command_silent(command, output, sizeof(output));
 }
 
 wterm_result_t hotspot_get_status(const char *name, hotspot_status_t *status) {
@@ -427,8 +469,13 @@ wterm_result_t hotspot_delete_config(const char *name) {
         return WTERM_ERROR_INVALID_INPUT;
     }
 
-    // Try to stop hotspot if running (ignore errors if already stopped)
-    hotspot_stop(name); // Don't check result - it's OK if already stopped
+    // Try to stop hotspot if running (silently - ignore errors if already stopped)
+    char stop_cmd[256];
+    snprintf(stop_cmd, sizeof(stop_cmd), "nmcli connection down %s 2>/dev/null", name);
+    FILE *fp = popen(stop_cmd, "r");
+    if (fp) {
+        pclose(fp); // Ignore return value - hotspot might already be stopped
+    }
 
     // Check if this is a wterm-managed hotspot or external
     int found_index = -1;
@@ -440,6 +487,7 @@ wterm_result_t hotspot_delete_config(const char *name) {
     }
 
     // If it's a wterm-managed hotspot, remove from saved configs
+    bool was_wterm_managed = false;
     if (found_index != -1) {
         // Shift remaining configurations
         for (int i = found_index; i < saved_configs.count - 1; i++) {
@@ -454,26 +502,19 @@ wterm_result_t hotspot_delete_config(const char *name) {
             unlink(config_path);
             free(config_path);
         }
+        was_wterm_managed = true;
     }
 
     // Delete NetworkManager connection (works for both wterm and external hotspots)
+    // This is optional cleanup - ignore errors if connection doesn't exist
     char command[256];
-    snprintf(command, sizeof(command), "nmcli connection delete %s 2>&1", name);
+    snprintf(command, sizeof(command), "nmcli connection delete %s 2>/dev/null", name);
     char output[512];
-    wterm_result_t result = execute_nmcli_command(command, output, sizeof(output));
+    execute_nmcli_command_silent(command, output, sizeof(output));
 
-    if (result != WTERM_SUCCESS) {
-        // Check if the error is because connection doesn't exist
-        if (strstr(output, "does not exist") || strstr(output, "unknown connection")) {
-            fprintf(stderr, "Connection '%s' not found in NetworkManager\n", name);
-            return WTERM_ERROR_GENERAL;
-        }
-        fprintf(stderr, "Failed to delete connection: %s\n", output);
-        return WTERM_ERROR_GENERAL;
-    }
-
-    printf("Hotspot '%s' deleted successfully\n", name);
-    return WTERM_SUCCESS;
+    // Return success if we successfully deleted the wterm config
+    // NetworkManager connection deletion is optional cleanup
+    return was_wterm_managed ? WTERM_SUCCESS : WTERM_ERROR_GENERAL;
 }
 
 wterm_result_t hotspot_validate_config(const hotspot_config_t *config,
@@ -544,6 +585,57 @@ wterm_result_t hotspot_validate_config(const hotspot_config_t *config,
     return WTERM_SUCCESS;
 }
 
+/**
+ * @brief Auto-detect a non-conflicting gateway IP based on current network
+ */
+static void detect_gateway_ip(char *gateway_ip, size_t size) {
+    if (!gateway_ip || size == 0) {
+        return;
+    }
+
+    // Get current IP address
+    FILE *fp = popen("ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\\s)\\d+(\\.\\d+){3}' | head -1", "r");
+    if (!fp) {
+        // Fallback to default
+        safe_string_copy(gateway_ip, "192.168.12.1", size);
+        return;
+    }
+
+    char current_ip[32] = {0};
+    if (fgets(current_ip, sizeof(current_ip), fp)) {
+        current_ip[strcspn(current_ip, "\n")] = '\0';
+
+        // Parse first three octets to detect pattern
+        int octet1 = 0, octet2 = 0, octet3 = 0;
+        if (sscanf(current_ip, "%d.%d.%d", &octet1, &octet2, &octet3) >= 2) {
+            // Choose non-conflicting third octet based on network class
+            int new_third_octet;
+            if (octet1 == 10) {
+                // Class A private: use 42 if current is not 42
+                new_third_octet = (octet2 == 42) ? 43 : 42;
+            } else if (octet1 == 172 && octet2 >= 16 && octet2 <= 31) {
+                // Class B private: keep second octet, change third
+                new_third_octet = (octet3 == 12) ? 13 : 12;
+            } else if (octet1 == 192 && octet2 == 168) {
+                // Class C private: keep 192.168, change third octet
+                new_third_octet = (octet3 == 12) ? 13 : 12;
+            } else {
+                // Other networks: use 12
+                new_third_octet = (octet3 == 12) ? 13 : 12;
+            }
+            snprintf(gateway_ip, size, "%d.%d.%d.1", octet1, octet2, new_third_octet);
+        } else {
+            // Failed to parse, use default
+            safe_string_copy(gateway_ip, "192.168.12.1", size);
+        }
+    } else {
+        // No IP found, use default
+        safe_string_copy(gateway_ip, "192.168.12.1", size);
+    }
+
+    pclose(fp);
+}
+
 void hotspot_get_default_config(hotspot_config_t *config) {
     if (!config) {
         return;
@@ -555,7 +647,9 @@ void hotspot_get_default_config(hotspot_config_t *config) {
     safe_string_copy(config->ssid, "wterm_hotspot", sizeof(config->ssid));
     safe_string_copy(config->wifi_interface, "wlan0", sizeof(config->wifi_interface));
     safe_string_copy(config->internet_interface, "eth0", sizeof(config->internet_interface));
-    safe_string_copy(config->gateway_ip, "192.168.12.1", sizeof(config->gateway_ip));
+
+    // Auto-detect gateway IP based on current network
+    detect_gateway_ip(config->gateway_ip, sizeof(config->gateway_ip));
 
     config->security_type = WIFI_SECURITY_WPA2;
     config->share_method = HOTSPOT_SHARE_NAT;
@@ -586,9 +680,63 @@ static wterm_result_t ensure_directories_exist(void) {
 }
 
 static wterm_result_t load_all_configs(void) {
-    // Implementation would scan HOTSPOT_CONFIG_DIR and load configurations
-    // For now, start with empty configuration list
     saved_configs.count = 0;
+
+    // Use shell command to list .conf files
+    char command[512];
+    snprintf(command, sizeof(command), "ls %s/*.conf 2>/dev/null", HOTSPOT_CONFIG_DIR);
+
+    FILE *fp = popen(command, "r");
+    if (!fp) {
+        return WTERM_SUCCESS; // No configs found
+    }
+
+    char filepath[512];
+    while (fgets(filepath, sizeof(filepath), fp) && saved_configs.count < MAX_HOTSPOTS) {
+        filepath[strcspn(filepath, "\n")] = '\0';
+
+        // Read config file
+        FILE *conf_fp = fopen(filepath, "r");
+        if (!conf_fp) continue;
+
+        hotspot_config_t *cfg = &saved_configs.hotspots[saved_configs.count];
+        memset(cfg, 0, sizeof(hotspot_config_t));
+
+        char line[512];
+        while (fgets(line, sizeof(line), conf_fp)) {
+            line[strcspn(line, "\n")] = '\0';
+
+            char *equals = strchr(line, '=');
+            if (!equals) continue;
+
+            *equals = '\0';
+            const char *key = line;
+            const char *value = equals + 1;
+
+            if (strcmp(key, "name") == 0) safe_string_copy(cfg->name, value, sizeof(cfg->name));
+            else if (strcmp(key, "ssid") == 0) safe_string_copy(cfg->ssid, value, sizeof(cfg->ssid));
+            else if (strcmp(key, "password") == 0) safe_string_copy(cfg->password, value, sizeof(cfg->password));
+            else if (strcmp(key, "wifi_interface") == 0) safe_string_copy(cfg->wifi_interface, value, sizeof(cfg->wifi_interface));
+            else if (strcmp(key, "internet_interface") == 0) safe_string_copy(cfg->internet_interface, value, sizeof(cfg->internet_interface));
+            else if (strcmp(key, "gateway_ip") == 0) safe_string_copy(cfg->gateway_ip, value, sizeof(cfg->gateway_ip));
+            else if (strcmp(key, "security_type") == 0) cfg->security_type = atoi(value);
+            else if (strcmp(key, "share_method") == 0) cfg->share_method = atoi(value);
+            else if (strcmp(key, "channel") == 0) cfg->channel = atoi(value);
+            else if (strcmp(key, "hidden") == 0) cfg->hidden = (atoi(value) != 0);
+            else if (strcmp(key, "client_isolation") == 0) cfg->client_isolation = (atoi(value) != 0);
+            else if (strcmp(key, "mac_filtering") == 0) cfg->mac_filtering = (atoi(value) != 0);
+            else if (strcmp(key, "is_5ghz") == 0) cfg->is_5ghz = (atoi(value) != 0);
+        }
+
+        fclose(conf_fp);
+
+        // Only add if name is valid
+        if (cfg->name[0] != '\0') {
+            saved_configs.count++;
+        }
+    }
+
+    pclose(fp);
     return WTERM_SUCCESS;
 }
 
@@ -629,14 +777,15 @@ static wterm_result_t execute_nmcli_command(const char *command, char *output, s
 
     int status = pclose(fp);
     if (status != 0) {
-        // Print the nmcli error to help with debugging
-        if (output && output[0] != '\0') {
-            fprintf(stderr, "nmcli error: %s\n", output);
-        }
         return WTERM_ERROR_NETWORK;
     }
 
     return WTERM_SUCCESS;
+}
+
+// Silent version - doesn't print errors
+static wterm_result_t execute_nmcli_command_silent(const char *command, char *output, size_t output_size) {
+    return execute_nmcli_command(command, output, output_size);
 }
 
 wterm_result_t hotspot_save_config_to_file(const hotspot_config_t *config) {
@@ -789,9 +938,14 @@ static wterm_result_t setup_nat_rules(const char *hotspot_iface, const char *ine
         return WTERM_ERROR_INVALID_INPUT;
     }
 
+    // Check if running as root - NAT requires root privileges
+    // Silently skip NAT setup if not root (hotspot will still work, just no internet sharing)
+    if (geteuid() != 0) {
+        return WTERM_SUCCESS;
+    }
+
     // Validate interface names
     if (!validate_interface_name(hotspot_iface) || !validate_interface_name(inet_iface)) {
-        fprintf(stderr, "Invalid interface name for NAT setup\n");
         return WTERM_ERROR_INVALID_INPUT;
     }
 
@@ -809,12 +963,8 @@ static wterm_result_t setup_nat_rules(const char *hotspot_iface, const char *ine
 
     if (!check_iptables_rule_exists(masq_args)) {
         if (safe_exec_command("iptables", masq_args) != 0) {
-            fprintf(stderr, "Failed to add NAT masquerade rule\n");
             return WTERM_ERROR_NETWORK;
         }
-        fprintf(stdout, "Added NAT MASQUERADE rule for %s\n", subnet);
-    } else {
-        fprintf(stdout, "NAT MASQUERADE rule already exists for %s\n", subnet);
     }
 
     // Add FORWARD rule (hotspot -> internet)
@@ -827,12 +977,8 @@ static wterm_result_t setup_nat_rules(const char *hotspot_iface, const char *ine
 
     if (!check_iptables_rule_exists(forward_out_args)) {
         if (safe_exec_command("iptables", forward_out_args) != 0) {
-            fprintf(stderr, "Failed to add forward out rule\n");
             return WTERM_ERROR_NETWORK;
         }
-        fprintf(stdout, "Added FORWARD rule: %s → %s\n", hotspot_iface, inet_iface);
-    } else {
-        fprintf(stdout, "FORWARD rule already exists: %s → %s\n", hotspot_iface, inet_iface);
     }
 
     // Add FORWARD rule (internet -> hotspot, established connections)
@@ -845,14 +991,7 @@ static wterm_result_t setup_nat_rules(const char *hotspot_iface, const char *ine
     };
 
     if (!check_iptables_rule_exists(forward_in_args)) {
-        if (safe_exec_command("iptables", forward_in_args) != 0) {
-            fprintf(stderr, "Warning: Failed to add forward in rule\n");
-            // Not critical, continue anyway
-        } else {
-            fprintf(stdout, "Added FORWARD rule: %s → %s (established)\n", inet_iface, hotspot_iface);
-        }
-    } else {
-        fprintf(stdout, "FORWARD rule already exists: %s → %s (established)\n", inet_iface, hotspot_iface);
+        safe_exec_command("iptables", forward_in_args);  // Non-critical, ignore errors
     }
 
     return WTERM_SUCCESS;
@@ -864,6 +1003,12 @@ static wterm_result_t setup_nat_rules(const char *hotspot_iface, const char *ine
 static wterm_result_t cleanup_nat_rules(const char *hotspot_iface, const char *hotspot_subnet) {
     if (!hotspot_iface || !hotspot_subnet) {
         return WTERM_ERROR_INVALID_INPUT;
+    }
+
+    // Check if running as root - NAT cleanup requires root privileges
+    // Silently skip if not root
+    if (geteuid() != 0) {
+        return WTERM_SUCCESS;
     }
 
     // Extract subnet

@@ -508,8 +508,14 @@ static backend_result_t nmcli_delete_hotspot(const char *hotspot_name) {
     return result;
   }
 
-  // First stop the hotspot if it's running
-  nmcli_stop_hotspot(hotspot_name);
+  // First stop the hotspot if it's running (silently ignore errors if already stopped)
+  char stop_command[256];
+  snprintf(stop_command, sizeof(stop_command),
+           "nmcli connection down %s 2>/dev/null", hotspot_name);
+  FILE *fp = popen(stop_command, "r");
+  if (fp) {
+    pclose(fp); // Ignore return value - hotspot might already be stopped
+  }
 
   // Then delete the connection
   char command[256];

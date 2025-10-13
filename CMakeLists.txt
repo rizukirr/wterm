@@ -56,6 +56,7 @@ set(STRING_UTILS_SOURCES
     src/utils/input_sanitizer.c
     src/utils/safe_exec.c
     src/utils/iw_helper.c
+    src/core/error_queue.c
 )
 
 # Source files for network scanner library
