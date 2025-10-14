@@ -10,6 +10,7 @@
 #include "../../include/wterm/common.h"
 #include "../core/connection.h"
 #include "../core/hotspot_manager.h"
+#include "../core/error_queue.h"
 #include "../utils/string_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -868,7 +869,7 @@ static bool handle_connect_action(const network_info_t *network) {
             refresh_connection_status();
             // User will see ✓ removed from network list
         } else {
-            draw_message_modal("Failed to disconnect", true, 0);
+            REPORT_ERROR(true, "Failed to disconnect%s", "");
         }
 
         return true;
@@ -905,7 +906,7 @@ static bool handle_connect_action(const network_info_t *network) {
     // Start connection in background thread
     pthread_t conn_thread;
     if (pthread_create(&conn_thread, NULL, connection_thread_func, &thread_data) != 0) {
-        draw_message_modal("Failed to start connection thread", true, 0);
+        REPORT_ERROR(true, "Failed to start connection thread%s", "");
         return true;
     }
 
@@ -959,9 +960,7 @@ static bool handle_connect_action(const network_info_t *network) {
         // User will see the ✓ indicator next to the network
     } else {
         // Only show error modal if failed
-        char error_msg[512];
-        snprintf(error_msg, sizeof(error_msg), "Failed: %s", conn_result.error_message);
-        draw_message_modal(error_msg, true, 0);
+        REPORT_ERROR(true, "Failed: %s", conn_result.error_message);
     }
 
     return true;
@@ -992,7 +991,7 @@ static bool handle_disconnect_action(void) {
         refresh_connection_status();
         // User will see ✓ removed from network
     } else {
-        draw_message_modal("Failed to disconnect", true, 0);
+        REPORT_ERROR(true, "Failed to disconnect%s", "");
     }
 
     return true;
@@ -1031,7 +1030,7 @@ static bool handle_hotspot_toggle(const hotspot_config_t *config) {
         if (result == WTERM_SUCCESS) {
             draw_message_modal("Hotspot stopped successfully", false, 0);
         } else {
-            draw_message_modal("Failed to stop hotspot", true, 0);
+            REPORT_ERROR(true, "Failed to stop hotspot%s", "");
         }
     } else {
         // Hotspot is stopped - ask to start
@@ -1050,7 +1049,7 @@ static bool handle_hotspot_toggle(const hotspot_config_t *config) {
         if (result == WTERM_SUCCESS) {
             draw_message_modal("Hotspot started successfully", false, 0);
         } else {
-            draw_message_modal("Failed to start hotspot", true, 0);
+            REPORT_ERROR(true, "Failed to start hotspot%s", "");
         }
     }
 
@@ -1126,7 +1125,7 @@ static bool handle_hotspot_create(void) {
     wterm_result_t result = hotspot_get_interface_list(interfaces, 8, &interface_count);
 
     if (result != WTERM_SUCCESS || interface_count == 0) {
-        draw_message_modal("No WiFi interfaces available", true, 0);
+        REPORT_ERROR(true, "No WiFi interfaces available%s", "");
         return true;
     }
 
@@ -1155,7 +1154,7 @@ static bool handle_hotspot_create(void) {
     if (result == WTERM_SUCCESS) {
         draw_message_modal("Hotspot created successfully", false, 0);
     } else {
-        draw_message_modal("Failed to create hotspot", true, 0);
+        REPORT_ERROR(true, "Failed to create hotspot%s", "");
     }
 
     return true;
@@ -1174,7 +1173,7 @@ static bool handle_hotspot_delete(const hotspot_config_t *config) {
     hotspot_get_status(config->name, &status);
 
     if (status.state == HOTSPOT_STATE_ACTIVE) {
-        draw_message_modal("Cannot delete running hotspot. Stop it first.", true, 0);
+        REPORT_ERROR(true, "Cannot delete running hotspot. Stop it first.%s", "");
         return true;
     }
 
@@ -1193,7 +1192,7 @@ static bool handle_hotspot_delete(const hotspot_config_t *config) {
     if (result == WTERM_SUCCESS) {
         draw_message_modal("Hotspot deleted successfully", false, 0);
     } else {
-        draw_message_modal("Failed to delete hotspot", true, 0);
+        REPORT_ERROR(true, "Failed to delete hotspot%s", "");
     }
 
     return true;
@@ -1220,6 +1219,9 @@ wterm_result_t tui_init(void) {
 
     tui_initialized = true;
 
+    // Initialize error queue for TUI error popups
+    error_queue_init();
+
     // Refresh connection status on init
     refresh_connection_status();
 
@@ -1231,6 +1233,9 @@ wterm_result_t tui_init(void) {
 
 void tui_shutdown(void) {
     if (tui_initialized) {
+        // Cleanup error queue
+        error_queue_cleanup();
+
         tb_shutdown();
         tui_initialized = false;
     }
@@ -1364,6 +1369,17 @@ bool tui_select_network(const network_list_t *networks,
         }
 
         tb_present();
+
+        // Check for queued errors and display them in modal popups
+        char error_msg[512];
+        bool is_error;
+        if (error_queue_has_errors()) {
+            if (error_queue_pop(error_msg, sizeof(error_msg), &is_error)) {
+                draw_message_modal(error_msg, is_error, 0);
+                // Loop will redraw after user dismisses modal
+                continue;  // Skip event handling, redraw UI
+            }
+        }
 
         struct tb_event ev;
         tb_poll_event(&ev);

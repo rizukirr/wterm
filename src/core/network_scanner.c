@@ -7,6 +7,7 @@
 #include "network_scanner.h"
 #include "network_backends/backend_interface.h"
 #include "../utils/string_utils.h"
+#include "error_queue.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,14 +74,14 @@ wterm_result_t scan_wifi_networks(network_list_t *network_list) {
   // Get the current backend
   const network_backend_t* backend = get_current_backend();
   if (!backend) {
-    fprintf(stderr, "No supported network manager found. Please install NetworkManager (nmcli) or iwd (iwctl).\n");
+    REPORT_ERROR(true, "No supported network manager found. Please install NetworkManager (nmcli) or iwd (iwctl).%s", "");
     return WTERM_ERROR_NETWORK;
   }
 
   // Use backend to scan networks
   wterm_result_t result = backend->scan_networks(network_list);
   if (result != WTERM_SUCCESS) {
-    fprintf(stderr, "Failed to scan networks using %s\n", backend->name);
+    REPORT_ERROR(true, "Failed to scan networks using %s", backend->name);
     return result;
   }
 
@@ -126,7 +127,7 @@ wterm_result_t rescan_wifi_networks_silent(bool silent) {
   const network_backend_t* backend = get_current_backend();
   if (!backend) {
     if (!silent) {
-      fprintf(stderr, "No supported network manager found. Please install NetworkManager (nmcli) or iwd (iwctl).\n");
+      REPORT_ERROR(true, "No supported network manager found. Please install NetworkManager (nmcli) or iwd (iwctl).%s", "");
     }
     return WTERM_ERROR_NETWORK;
   }
@@ -135,7 +136,7 @@ wterm_result_t rescan_wifi_networks_silent(bool silent) {
   wterm_result_t result = backend->rescan_networks();
   if (result != WTERM_SUCCESS) {
     if (!silent) {
-      fprintf(stderr, "Failed to trigger WiFi rescan using %s\n", backend->name);
+      REPORT_ERROR(true, "Failed to trigger WiFi rescan using %s", backend->name);
     }
     return result;
   }

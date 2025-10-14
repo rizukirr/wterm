@@ -68,7 +68,12 @@ static bool connection_exists(const char *ssid) {
     }
   }
 
-  pclose(fp);
+  int exit_status = pclose(fp);
+  // If nmcli failed, return false (connection doesn't exist or can't be verified)
+  if (exit_status != 0) {
+    return false;
+  }
+
   return exists;
 }
 
@@ -81,7 +86,7 @@ static connection_result_t execute_nmcli_connect(const char *command,
   connection_result_t result = {0};
   struct timespec sleep_time = {0, 100000000}; // 100ms
 
-  // Execute nmcli command (runs in background)
+  // Execute nmcli command and capture output for immediate error detection
   FILE *fp = popen(command, "r");
   if (!fp) {
     result.result = WTERM_ERROR_NETWORK;
@@ -91,8 +96,58 @@ static connection_result_t execute_nmcli_connect(const char *command,
     return result;
   }
 
-  // Close immediately - we'll monitor via connection status
-  pclose(fp);
+  // Read output to detect immediate errors (wrong password, network not found, etc.)
+  char output[1024] = {0};
+  size_t offset = 0;
+  char line[256];
+
+  while (fgets(line, sizeof(line), fp) && offset < sizeof(output) - 1) {
+    size_t len = strlen(line);
+    if (offset + len < sizeof(output) - 1) {
+      memcpy(output + offset, line, len);
+      offset += len;
+    }
+  }
+  output[offset] = '\0';
+
+  // Check exit status
+  int exit_status = pclose(fp);
+
+  // If command failed immediately, parse error and return early
+  if (exit_status != 0) {
+    result.result = WTERM_ERROR_NETWORK;
+
+    // Parse common error patterns
+    if (strstr(output, "No network with SSID") || strstr(output, "not found")) {
+      result.error_type = CONN_ERROR_NETWORK_UNAVAILABLE;
+      snprintf(result.error_message, sizeof(result.error_message),
+               "Network '%s' not found", ssid);
+    } else if (strstr(output, "Secrets were required") || strstr(output, "password")) {
+      result.error_type = CONN_ERROR_AUTH_FAILED;
+      safe_string_copy(result.error_message, "Authentication failed - incorrect password",
+                       sizeof(result.error_message));
+    } else if (strstr(output, "Failed to activate connection")) {
+      result.error_type = CONN_ERROR_UNKNOWN;
+      snprintf(result.error_message, sizeof(result.error_message),
+               "Failed to activate connection to '%s'", ssid);
+    } else {
+      // Generic error with first line of output
+      result.error_type = CONN_ERROR_UNKNOWN;
+      char *newline = strchr(output, '\n');
+      if (newline) *newline = '\0';
+
+      // Truncate output to fit in error message buffer
+      // "Connection failed: " is 20 chars, leave room for null terminator
+      const size_t max_output_len = sizeof(result.error_message) - 21;
+      if (strlen(output) > max_output_len) {
+        output[max_output_len] = '\0';
+      }
+
+      snprintf(result.error_message, sizeof(result.error_message),
+               "Connection failed: %s", output[0] ? output : "Unknown error");
+    }
+    return result;
+  }
 
   // Poll connection status for up to 15 seconds (150 iterations * 100ms)
   for (int i = 0; i < 150; i++) {
@@ -308,7 +363,12 @@ connection_status_t get_connection_status(void) {
     }
   }
 
-  pclose(fp);
+  int exit_status = pclose(fp);
+  // If nmcli failed, return disconnected status
+  if (exit_status != 0) {
+    status.is_connected = false;
+    return status;
+  }
 
   // Get SSID from device wifi list if connected
   if (status.is_connected) {
@@ -325,7 +385,11 @@ connection_status_t get_connection_status(void) {
           break;
         }
       }
-      pclose(fp);
+      exit_status = pclose(fp);
+      // If getting SSID failed, clear connection status
+      if (exit_status != 0) {
+        status.connected_ssid[0] = '\0';
+      }
     }
   }
 
@@ -347,7 +411,11 @@ connection_status_t get_connection_status(void) {
                            sizeof(status.ip_address));
         }
       }
-      pclose(fp);
+      exit_status = pclose(fp);
+      // If getting IP failed, clear IP address
+      if (exit_status != 0) {
+        status.ip_address[0] = '\0';
+      }
     }
   }
 
@@ -361,7 +429,7 @@ wterm_result_t disconnect_current_network(void) {
   if (status.is_connected && status.connection_name[0] != '\0') {
     char *const args[] = {"nmcli", "connection", "down", status.connection_name,
                           NULL};
-    return safe_exec_check("nmcli", args);
+    return safe_exec_check_silent("nmcli", args);
   }
 
   // No active connection to disconnect
