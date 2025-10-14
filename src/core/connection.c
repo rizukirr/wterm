@@ -135,6 +135,14 @@ static connection_result_t execute_nmcli_connect(const char *command,
       result.error_type = CONN_ERROR_UNKNOWN;
       char *newline = strchr(output, '\n');
       if (newline) *newline = '\0';
+
+      // Truncate output to fit in error message buffer
+      // "Connection failed: " is 20 chars, leave room for null terminator
+      const size_t max_output_len = sizeof(result.error_message) - 21;
+      if (strlen(output) > max_output_len) {
+        output[max_output_len] = '\0';
+      }
+
       snprintf(result.error_message, sizeof(result.error_message),
                "Connection failed: %s", output[0] ? output : "Unknown error");
     }

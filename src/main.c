@@ -55,7 +55,7 @@ static wterm_result_t handle_list_networks(void) {
   wterm_result_t result = scan_wifi_networks(&network_list);
 
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to scan WiFi networks");
+    REPORT_ERROR(true, "Failed to scan WiFi networks%s", "");
     return result;
   }
 
@@ -83,7 +83,7 @@ static wterm_result_t scan_networks_with_loading(network_list_t *network_list,
   }
 
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to scan WiFi networks");
+    REPORT_ERROR(true, "Failed to scan WiFi networks%s", "");
   }
 
   return result;
@@ -93,7 +93,7 @@ static wterm_result_t handle_tui_mode(void) {
   // Check if TUI is available
   if (!tui_is_available()) {
     REPORT_ERROR(false,
-            "TUI not available - must run in a proper terminal (TTY)");
+            "TUI not available - must run in a proper terminal (TTY)%s", "");
     return handle_list_networks();
   }
 
@@ -106,7 +106,7 @@ static wterm_result_t handle_tui_mode(void) {
 
   // Initialize TUI after scan completes
   if (tui_init() != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "TUI initialization failed");
+    REPORT_ERROR(true, "TUI initialization failed%s", "");
     return WTERM_ERROR_GENERAL;
   }
 
@@ -135,7 +135,7 @@ static wterm_result_t handle_tui_mode(void) {
 
       // Reinitialize TUI after scan completes
       if (tui_init() != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to reinitialize TUI");
+        REPORT_ERROR(true, "Failed to reinitialize TUI%s", "");
         return WTERM_ERROR_GENERAL;
       }
       continue; // Show selection again with new networks
@@ -152,7 +152,7 @@ static wterm_result_t handle_tui_mode(void) {
 
       // Reinitialize TUI for next selection
       if (tui_init() != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to reinitialize TUI");
+        REPORT_ERROR(true, "Failed to reinitialize TUI%s", "");
         return WTERM_ERROR_GENERAL;
       }
       continue; // Return to network selection after hotspot menu
@@ -167,14 +167,14 @@ static wterm_result_t handle_tui_mode(void) {
 static wterm_result_t handle_hotspot_list(void) {
   wterm_result_t result = hotspot_manager_init();
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to initialize hotspot manager");
+    REPORT_ERROR(true, "Failed to initialize hotspot manager%s", "");
     return result;
   }
 
   hotspot_list_t hotspot_list;
   result = hotspot_list_configs(&hotspot_list);
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to list hotspot configurations");
+    REPORT_ERROR(true, "Failed to list hotspot configurations%s", "");
     hotspot_manager_cleanup();
     return result;
   }
@@ -203,13 +203,13 @@ static wterm_result_t handle_hotspot_list(void) {
 
 static wterm_result_t handle_hotspot_start(const char *hotspot_name) {
   if (!hotspot_name) {
-    REPORT_ERROR(true, "Hotspot name required");
+    REPORT_ERROR(true, "Hotspot name required%s", "");
     return WTERM_ERROR_INVALID_INPUT;
   }
 
   wterm_result_t result = hotspot_manager_init();
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to initialize hotspot manager");
+    REPORT_ERROR(true, "Failed to initialize hotspot manager%s", "");
     return result;
   }
 
@@ -230,13 +230,13 @@ static wterm_result_t handle_hotspot_start(const char *hotspot_name) {
 
 static wterm_result_t handle_hotspot_stop(const char *hotspot_name) {
   if (!hotspot_name) {
-    REPORT_ERROR(true, "Hotspot name required");
+    REPORT_ERROR(true, "Hotspot name required%s", "");
     return WTERM_ERROR_INVALID_INPUT;
   }
 
   wterm_result_t result = hotspot_manager_init();
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to initialize hotspot manager");
+    REPORT_ERROR(true, "Failed to initialize hotspot manager%s", "");
     return result;
   }
 
@@ -255,7 +255,7 @@ static wterm_result_t handle_hotspot_stop(const char *hotspot_name) {
 static wterm_result_t handle_hotspot_status(const char *hotspot_name) {
   wterm_result_t result = hotspot_manager_init();
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to initialize hotspot manager");
+    REPORT_ERROR(true, "Failed to initialize hotspot manager%s", "");
     return result;
   }
 
@@ -304,13 +304,13 @@ static wterm_result_t handle_hotspot_status(const char *hotspot_name) {
 
 static wterm_result_t handle_hotspot_delete(const char *hotspot_name) {
   if (!hotspot_name) {
-    REPORT_ERROR(true, "Hotspot name required");
+    REPORT_ERROR(true, "Hotspot name required%s", "");
     return WTERM_ERROR_INVALID_INPUT;
   }
 
   wterm_result_t result = hotspot_manager_init();
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to initialize hotspot manager");
+    REPORT_ERROR(true, "Failed to initialize hotspot manager%s", "");
     return result;
   }
 
@@ -330,7 +330,7 @@ static wterm_result_t handle_hotspot_delete(const char *hotspot_name) {
 static wterm_result_t handle_hotspot_quick(void) {
   wterm_result_t result = hotspot_manager_init();
   if (result != WTERM_SUCCESS) {
-    REPORT_ERROR(true, "Failed to initialize hotspot manager");
+    REPORT_ERROR(true, "Failed to initialize hotspot manager%s", "");
     return result;
   }
 
@@ -346,8 +346,8 @@ static wterm_result_t handle_hotspot_quick(void) {
     printf("Interface: wlan0\n");
     printf("Sharing from: eth0\n");
   } else {
-    REPORT_ERROR(true, "✗ Failed to start quick hotspot");
-    REPORT_ERROR(true, "Make sure wlan0 and eth0 interfaces are available");
+    REPORT_ERROR(true, "✗ Failed to start quick hotspot%s", "");
+    REPORT_ERROR(true, "Make sure wlan0 and eth0 interfaces are available%s", "");
   }
 
   hotspot_manager_cleanup();
@@ -355,9 +355,9 @@ static wterm_result_t handle_hotspot_quick(void) {
 }
 
 static wterm_result_t handle_hotspot_create(void) {
-  REPORT_ERROR(true, "Interactive hotspot creation is available via TUI mode.");
-  REPORT_ERROR(true, "Use 'wterm hotspot' to access the interactive menu, or");
-  REPORT_ERROR(true, "Use 'wterm hotspot quick' for quick setup with defaults.");
+  REPORT_ERROR(true, "Interactive hotspot creation is available via TUI mode.%s", "");
+  REPORT_ERROR(true, "Use 'wterm hotspot' to access the interactive menu, or%s", "");
+  REPORT_ERROR(true, "Use 'wterm hotspot quick' for quick setup with defaults.%s", "");
   return WTERM_ERROR_GENERAL;
 }
 
@@ -375,13 +375,13 @@ static wterm_result_t handle_hotspot_commands(int argc, char *argv[]) {
     return handle_hotspot_list();
   } else if (strcmp(subcommand, "start") == 0) {
     if (argc < 4) {
-      REPORT_ERROR(true, "Hotspot name required for start command");
+      REPORT_ERROR(true, "Hotspot name required for start command%s", "");
       return WTERM_ERROR_INVALID_INPUT;
     }
     return handle_hotspot_start(argv[3]);
   } else if (strcmp(subcommand, "stop") == 0) {
     if (argc < 4) {
-      REPORT_ERROR(true, "Hotspot name required for stop command");
+      REPORT_ERROR(true, "Hotspot name required for stop command%s", "");
       return WTERM_ERROR_INVALID_INPUT;
     }
     return handle_hotspot_stop(argv[3]);
@@ -390,7 +390,7 @@ static wterm_result_t handle_hotspot_commands(int argc, char *argv[]) {
     return handle_hotspot_status(name);
   } else if (strcmp(subcommand, "delete") == 0) {
     if (argc < 4) {
-      REPORT_ERROR(true, "Hotspot name required for delete command");
+      REPORT_ERROR(true, "Hotspot name required for delete command%s", "");
       return WTERM_ERROR_INVALID_INPUT;
     }
     return handle_hotspot_delete(argv[3]);
@@ -400,7 +400,7 @@ static wterm_result_t handle_hotspot_commands(int argc, char *argv[]) {
     return handle_hotspot_create();
   } else {
     REPORT_ERROR(true, "Unknown hotspot command: %s", subcommand);
-    REPORT_ERROR(true, "Use 'wterm hotspot' to see available commands");
+    REPORT_ERROR(true, "Use 'wterm hotspot' to see available commands%s", "");
     return WTERM_ERROR_INVALID_INPUT;
   }
 }
@@ -420,7 +420,7 @@ int main(int argc, char *argv[]) {
       return handle_hotspot_commands(argc, argv);
     } else {
       REPORT_ERROR(true, "Unknown command: %s", argv[1]);
-      REPORT_ERROR(true, "Use --help for usage information.");
+      REPORT_ERROR(true, "Use --help for usage information.%s", "");
       return WTERM_ERROR_INVALID_INPUT;
     }
   }

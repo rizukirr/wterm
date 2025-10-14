@@ -154,7 +154,7 @@ wterm_result_t hotspot_start(const char *name, hotspot_status_t *status) {
 
     // Validate gateway IP is set (should always pass after auto-detection)
     if (!config->gateway_ip[0]) {
-        REPORT_ERROR(true, "Hotspot configuration error: failed to detect gateway_ip");
+        REPORT_ERROR(true, "Hotspot configuration error: failed to detect gateway_ip%s", "");
         return WTERM_ERROR_INVALID_INPUT;
     }
 

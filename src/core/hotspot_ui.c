@@ -94,7 +94,7 @@ bool hotspot_select(const char* filter, char* selected_name, size_t buffer_size)
     // Get hotspot list from C function
     hotspot_list_t list;
     if (hotspot_list_configs(&list) != WTERM_SUCCESS || list.count == 0) {
-        REPORT_ERROR(false, "No hotspots configured");
+        REPORT_ERROR(false, "No hotspots configured%s", "");
         return false;
     }
 
@@ -109,7 +109,7 @@ bool hotspot_select(const char* filter, char* selected_name, size_t buffer_size)
 
     int choice;
     if (scanf("%d", &choice) != 1) {
-        REPORT_ERROR(true, "Invalid input");
+        REPORT_ERROR(true, "Invalid input%s", "");
         return false;
     }
     getchar(); // Consume newline
@@ -119,7 +119,7 @@ bool hotspot_select(const char* filter, char* selected_name, size_t buffer_size)
     }
 
     if (choice < 1 || choice > list.count) {
-        REPORT_ERROR(true, "Invalid selection");
+        REPORT_ERROR(true, "Invalid selection%s", "");
         return false;
     }
 
@@ -139,13 +139,13 @@ int hotspot_create_wizard(void) {
     printf("Hotspot name: ");
     fflush(stdout);
     if (fgets(name, sizeof(name), stdin) == NULL) {
-        REPORT_ERROR(true, "Failed to read hotspot name");
+        REPORT_ERROR(true, "Failed to read hotspot name%s", "");
         return -1;
     }
     name[strcspn(name, "\n")] = '\0';
 
     if (!validate_hotspot_name(name)) {
-        REPORT_ERROR(true, "Invalid hotspot name");
+        REPORT_ERROR(true, "Invalid hotspot name%s", "");
         return -1;
     }
 
@@ -157,7 +157,7 @@ int hotspot_create_wizard(void) {
     int iface_count = 0;
 
     if (hotspot_get_interface_list(interfaces, 8, &iface_count) != WTERM_SUCCESS || iface_count == 0) {
-        REPORT_ERROR(true, "No WiFi interfaces found");
+        REPORT_ERROR(true, "No WiFi interfaces found%s", "");
         return -1;
     }
 
@@ -171,7 +171,7 @@ int hotspot_create_wizard(void) {
 
     int iface_choice;
     if (scanf("%d", &iface_choice) != 1 || iface_choice < 1 || iface_choice > iface_count) {
-        REPORT_ERROR(true, "Invalid selection");
+        REPORT_ERROR(true, "Invalid selection%s", "");
         return -1;
     }
     getchar(); // Consume newline
@@ -194,7 +194,7 @@ int hotspot_create_wizard(void) {
 
     int sec_choice;
     if (scanf("%d", &sec_choice) != 1 || sec_choice < 1 || sec_choice > sec_count) {
-        REPORT_ERROR(true, "Invalid selection");
+        REPORT_ERROR(true, "Invalid selection%s", "");
         return -1;
     }
     getchar(); // Consume newline
@@ -208,24 +208,24 @@ int hotspot_create_wizard(void) {
         char password_confirm[HOTSPOT_PASSWORD_MAX];
 
         if (!get_password_input("Password", password, sizeof(password))) {
-            REPORT_ERROR(true, "Failed to read password");
+            REPORT_ERROR(true, "Failed to read password%s", "");
             return -1;
         }
 
         if (strlen(password) < 8 || strlen(password) > 63) {
-            REPORT_ERROR(true, "Password must be 8-63 characters");
+            REPORT_ERROR(true, "Password must be 8-63 characters%s", "");
             explicit_bzero(password, sizeof(password));
             return -1;
         }
 
         if (!get_password_input("Confirm password", password_confirm, sizeof(password_confirm))) {
-            REPORT_ERROR(true, "Failed to confirm password");
+            REPORT_ERROR(true, "Failed to confirm password%s", "");
             explicit_bzero(password, sizeof(password));
             return -1;
         }
 
         if (strcmp(password, password_confirm) != 0) {
-            REPORT_ERROR(true, "Passwords do not match");
+            REPORT_ERROR(true, "Passwords do not match%s", "");
             explicit_bzero(password, sizeof(password));
             explicit_bzero(password_confirm, sizeof(password_confirm));
             return -1;
@@ -251,7 +251,7 @@ int hotspot_create_wizard(void) {
 
     int band_choice;
     if (scanf("%d", &band_choice) != 1 || band_choice < 1 || band_choice > band_count) {
-        REPORT_ERROR(true, "Invalid selection");
+        REPORT_ERROR(true, "Invalid selection%s", "");
         return -1;
     }
     getchar(); // Consume newline
@@ -262,7 +262,7 @@ int hotspot_create_wizard(void) {
     printf("\nCreating hotspot '%s'...\n", config.name);
 
     if (hotspot_create_config(&config) != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to create hotspot configuration");
+        REPORT_ERROR(true, "Failed to create hotspot configuration%s", "");
         return -1;
     }
 
@@ -270,7 +270,7 @@ int hotspot_create_wizard(void) {
 
     hotspot_status_t status;
     if (hotspot_start(config.name, &status) != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to start hotspot");
+        REPORT_ERROR(true, "Failed to start hotspot%s", "");
         return -1;
     }
 
@@ -286,7 +286,7 @@ int hotspot_create_wizard(void) {
 int hotspot_start_interactive(void) {
     char name[MAX_STR_SSID];
     if (!hotspot_select(NULL, name, sizeof(name))) {
-        REPORT_ERROR(false, "No hotspot selected");
+        REPORT_ERROR(false, "No hotspot selected%s", "");
         return -1;
     }
 
@@ -294,7 +294,7 @@ int hotspot_start_interactive(void) {
 
     hotspot_status_t status;
     if (hotspot_start(name, &status) != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to start hotspot");
+        REPORT_ERROR(true, "Failed to start hotspot%s", "");
         return -1;
     }
 
@@ -306,14 +306,14 @@ int hotspot_start_interactive(void) {
 int hotspot_stop_interactive(void) {
     char name[MAX_STR_SSID];
     if (!hotspot_select(NULL, name, sizeof(name))) {
-        REPORT_ERROR(false, "No hotspot selected");
+        REPORT_ERROR(false, "No hotspot selected%s", "");
         return -1;
     }
 
     printf("Stopping hotspot '%s'...\n", name);
 
     if (hotspot_stop(name) != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to stop hotspot");
+        REPORT_ERROR(true, "Failed to stop hotspot%s", "");
         return -1;
     }
 
@@ -325,7 +325,7 @@ int hotspot_stop_interactive(void) {
 int hotspot_delete_interactive(void) {
     char name[MAX_STR_SSID];
     if (!hotspot_select(NULL, name, sizeof(name))) {
-        REPORT_ERROR(false, "No hotspot selected");
+        REPORT_ERROR(false, "No hotspot selected%s", "");
         return -1;
     }
 
@@ -338,7 +338,7 @@ int hotspot_delete_interactive(void) {
     }
 
     if (hotspot_delete_config(name) != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to delete hotspot");
+        REPORT_ERROR(true, "Failed to delete hotspot%s", "");
         return -1;
     }
 
@@ -350,7 +350,7 @@ int hotspot_delete_interactive(void) {
 int hotspot_list_all(void) {
     hotspot_list_t list;
     if (hotspot_list_configs(&list) != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to get hotspot list");
+        REPORT_ERROR(true, "Failed to get hotspot list%s", "");
         return -1;
     }
 
@@ -377,13 +377,13 @@ int hotspot_list_all(void) {
 int hotspot_show_status(void) {
     char name[MAX_STR_SSID];
     if (!hotspot_select(NULL, name, sizeof(name))) {
-        REPORT_ERROR(false, "No hotspot selected");
+        REPORT_ERROR(false, "No hotspot selected%s", "");
         return -1;
     }
 
     hotspot_status_t status;
     if (hotspot_get_status(name, &status) != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to get status");
+        REPORT_ERROR(true, "Failed to get status%s", "");
         return -1;
     }
 
@@ -426,7 +426,7 @@ static bool check_root_for_operation(const char* operation, int argc, char *argv
     // Build sudo command to restart menu
     char **sudo_args = malloc(sizeof(char*) * (argc + 2));
     if (!sudo_args) {
-        REPORT_ERROR(true, "Memory allocation failed");
+        REPORT_ERROR(true, "Memory allocation failed%s", "");
         return false;
     }
 
@@ -452,7 +452,7 @@ int hotspot_interactive_menu(int argc, char *argv[]) {
 
     // Initialize hotspot manager (doesn't require root)
     if (hotspot_manager_init() != WTERM_SUCCESS) {
-        REPORT_ERROR(true, "Failed to initialize hotspot manager");
+        REPORT_ERROR(true, "Failed to initialize hotspot manager%s", "");
         return 1;
     }
 
@@ -470,7 +470,7 @@ int hotspot_interactive_menu(int argc, char *argv[]) {
 
         int choice;
         if (scanf("%d", &choice) != 1) {
-            REPORT_ERROR(true, "Invalid input");
+            REPORT_ERROR(true, "Invalid input%s", "");
             while (getchar() != '\n'); // Clear input buffer
             continue;
         }
@@ -508,7 +508,7 @@ int hotspot_interactive_menu(int argc, char *argv[]) {
                 hotspot_manager_cleanup();
                 return 0;
             default:
-                REPORT_ERROR(true, "Invalid option");
+                REPORT_ERROR(true, "Invalid option%s", "");
         }
     }
 

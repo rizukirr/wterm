@@ -869,7 +869,7 @@ static bool handle_connect_action(const network_info_t *network) {
             refresh_connection_status();
             // User will see ✓ removed from network list
         } else {
-            REPORT_ERROR(true, "Failed to disconnect");
+            REPORT_ERROR(true, "Failed to disconnect%s", "");
         }
 
         return true;
@@ -906,7 +906,7 @@ static bool handle_connect_action(const network_info_t *network) {
     // Start connection in background thread
     pthread_t conn_thread;
     if (pthread_create(&conn_thread, NULL, connection_thread_func, &thread_data) != 0) {
-        REPORT_ERROR(true, "Failed to start connection thread");
+        REPORT_ERROR(true, "Failed to start connection thread%s", "");
         return true;
     }
 
@@ -991,7 +991,7 @@ static bool handle_disconnect_action(void) {
         refresh_connection_status();
         // User will see ✓ removed from network
     } else {
-        REPORT_ERROR(true, "Failed to disconnect");
+        REPORT_ERROR(true, "Failed to disconnect%s", "");
     }
 
     return true;
@@ -1030,7 +1030,7 @@ static bool handle_hotspot_toggle(const hotspot_config_t *config) {
         if (result == WTERM_SUCCESS) {
             draw_message_modal("Hotspot stopped successfully", false, 0);
         } else {
-            REPORT_ERROR(true, "Failed to stop hotspot");
+            REPORT_ERROR(true, "Failed to stop hotspot%s", "");
         }
     } else {
         // Hotspot is stopped - ask to start
@@ -1049,7 +1049,7 @@ static bool handle_hotspot_toggle(const hotspot_config_t *config) {
         if (result == WTERM_SUCCESS) {
             draw_message_modal("Hotspot started successfully", false, 0);
         } else {
-            REPORT_ERROR(true, "Failed to start hotspot");
+            REPORT_ERROR(true, "Failed to start hotspot%s", "");
         }
     }
 
@@ -1125,7 +1125,7 @@ static bool handle_hotspot_create(void) {
     wterm_result_t result = hotspot_get_interface_list(interfaces, 8, &interface_count);
 
     if (result != WTERM_SUCCESS || interface_count == 0) {
-        REPORT_ERROR(true, "No WiFi interfaces available");
+        REPORT_ERROR(true, "No WiFi interfaces available%s", "");
         return true;
     }
 
@@ -1154,7 +1154,7 @@ static bool handle_hotspot_create(void) {
     if (result == WTERM_SUCCESS) {
         draw_message_modal("Hotspot created successfully", false, 0);
     } else {
-        REPORT_ERROR(true, "Failed to create hotspot");
+        REPORT_ERROR(true, "Failed to create hotspot%s", "");
     }
 
     return true;
@@ -1173,7 +1173,7 @@ static bool handle_hotspot_delete(const hotspot_config_t *config) {
     hotspot_get_status(config->name, &status);
 
     if (status.state == HOTSPOT_STATE_ACTIVE) {
-        REPORT_ERROR(true, "Cannot delete running hotspot. Stop it first.");
+        REPORT_ERROR(true, "Cannot delete running hotspot. Stop it first.%s", "");
         return true;
     }
 
@@ -1192,7 +1192,7 @@ static bool handle_hotspot_delete(const hotspot_config_t *config) {
     if (result == WTERM_SUCCESS) {
         draw_message_modal("Hotspot deleted successfully", false, 0);
     } else {
-        REPORT_ERROR(true, "Failed to delete hotspot");
+        REPORT_ERROR(true, "Failed to delete hotspot%s", "");
     }
 
     return true;

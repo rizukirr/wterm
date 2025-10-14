@@ -74,7 +74,7 @@ wterm_result_t scan_wifi_networks(network_list_t *network_list) {
   // Get the current backend
   const network_backend_t* backend = get_current_backend();
   if (!backend) {
-    REPORT_ERROR(true, "No supported network manager found. Please install NetworkManager (nmcli) or iwd (iwctl).");
+    REPORT_ERROR(true, "No supported network manager found. Please install NetworkManager (nmcli) or iwd (iwctl).%s", "");
     return WTERM_ERROR_NETWORK;
   }
 
@@ -127,7 +127,7 @@ wterm_result_t rescan_wifi_networks_silent(bool silent) {
   const network_backend_t* backend = get_current_backend();
   if (!backend) {
     if (!silent) {
-      REPORT_ERROR(true, "No supported network manager found. Please install NetworkManager (nmcli) or iwd (iwctl).");
+      REPORT_ERROR(true, "No supported network manager found. Please install NetworkManager (nmcli) or iwd (iwctl).%s", "");
     }
     return WTERM_ERROR_NETWORK;
   }
