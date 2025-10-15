@@ -136,15 +136,12 @@ static connection_result_t execute_nmcli_connect(const char *command,
       char *newline = strchr(output, '\n');
       if (newline) *newline = '\0';
 
-      // Truncate output to fit in error message buffer
+      // Use %.*s to safely limit output length in format string
       // "Connection failed: " is 20 chars, leave room for null terminator
-      const size_t max_output_len = sizeof(result.error_message) - 21;
-      if (strlen(output) > max_output_len) {
-        output[max_output_len] = '\0';
-      }
-
+      const int max_output_len = (int)(sizeof(result.error_message) - 21);
       snprintf(result.error_message, sizeof(result.error_message),
-               "Connection failed: %s", output[0] ? output : "Unknown error");
+               "Connection failed: %.*s", max_output_len,
+               output[0] ? output : "Unknown error");
     }
     return result;
   }
