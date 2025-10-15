@@ -206,3 +206,28 @@ wterm_result_t hotspot_get_band_options(band_option_t *bands, int *count);
  * @return WTERM_SUCCESS on success, error code on failure
  */
 wterm_result_t hotspot_get_security_options(security_option_t *options, int *count);
+
+/**
+ * @brief Create a virtual WiFi interface for concurrent client+AP operation
+ * @param physical_interface Physical interface name (e.g., "wlan0")
+ * @param virtual_interface Output buffer for virtual interface name (e.g., "vwlan0")
+ * @param virtual_interface_size Size of output buffer
+ * @return WTERM_SUCCESS on success, error code on failure
+ */
+wterm_result_t create_virtual_interface(const char *physical_interface,
+                                       char *virtual_interface,
+                                       size_t virtual_interface_size);
+
+/**
+ * @brief Delete a virtual WiFi interface
+ * @param virtual_interface Virtual interface name to delete
+ * @return WTERM_SUCCESS on success, error code on failure
+ */
+wterm_result_t delete_virtual_interface(const char *virtual_interface);
+
+/**
+ * @brief Check if an interface name refers to a virtual interface
+ * @param interface Interface name to check
+ * @return true if virtual, false if physical
+ */
+bool is_virtual_interface(const char *interface);

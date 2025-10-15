@@ -112,6 +112,8 @@ typedef struct {
     bool client_isolation;                // Isolate clients from each other
     bool mac_filtering;                   // Enable MAC address filtering
     bool is_5ghz;                        // Use 5GHz band
+    char virtual_interface[MAX_STR_INTERFACE]; // Virtual interface name (if using concurrent mode)
+    bool use_virtual_if_possible;         // Prefer virtual interface for WiFi-to-WiFi sharing
 } hotspot_config_t;
 
 // Hotspot runtime status
@@ -139,6 +141,9 @@ typedef struct {
     char name[MAX_STR_INTERFACE];      // Interface name (e.g., wlan0)
     char status[32];                   // Status: connected, disconnected
     bool supports_ap;                  // Supports Access Point mode
+    bool supports_concurrent;          // Supports concurrent client+AP mode
+    bool is_connected;                 // Currently connected to a network
+    int current_channel;               // Current channel if connected (-1 if not)
 } interface_info_t;
 
 // Band option for hotspot UI

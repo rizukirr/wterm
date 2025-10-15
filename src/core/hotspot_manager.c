@@ -158,13 +158,60 @@ wterm_result_t hotspot_start(const char *name, hotspot_status_t *status) {
         return WTERM_ERROR_INVALID_INPUT;
     }
 
-    // Disconnect the WiFi interface if it's currently connected
-    // (A WiFi interface can't be a client and AP at the same time - single radio limitation)
-    char disconnect_cmd[512];
-    snprintf(disconnect_cmd, sizeof(disconnect_cmd),
-             "nmcli device disconnect %s 2>/dev/null", config->wifi_interface);
-    execute_nmcli_command_silent(disconnect_cmd, output, sizeof(output));
-    // Ignore errors - interface might not be connected
+    // Virtual interface support: Try to keep WiFi connected if hardware supports concurrent mode
+    bool use_virtual = false;
+    char actual_interface[MAX_STR_INTERFACE];
+    safe_string_copy(actual_interface, config->wifi_interface, sizeof(actual_interface));
+
+    // Check if physical interface is connected to WiFi
+    bool is_connected = false;
+    if (iw_is_available()) {
+        iw_check_interface_connected(config->wifi_interface, &is_connected);
+    }
+
+    if (is_connected && config->use_virtual_if_possible) {
+        // WiFi is connected - try virtual interface mode
+        bool supports_concurrent = false;
+        if (iw_check_concurrent_mode_support(config->wifi_interface, &supports_concurrent)
+            == WTERM_SUCCESS && supports_concurrent) {
+
+            // Get current channel
+            int current_channel = -1;
+            iw_get_connected_channel(config->wifi_interface, &current_channel);
+
+            if (current_channel > 0) {
+                // Create virtual interface
+                char virt_iface[MAX_STR_INTERFACE];
+                if (create_virtual_interface(config->wifi_interface,
+                                           virt_iface, sizeof(virt_iface))
+                    == WTERM_SUCCESS) {
+
+                    use_virtual = true;
+                    safe_string_copy(actual_interface, virt_iface, sizeof(actual_interface));
+                    config->channel = current_channel; // Force same channel
+                    safe_string_copy(config->virtual_interface, virt_iface,
+                                   sizeof(config->virtual_interface));
+
+                    REPORT_ERROR(false, "Using virtual interface %s (WiFi stays connected on channel %d)",
+                               virt_iface, current_channel);
+                }
+            }
+        }
+    }
+
+    // If virtual interface creation failed or not possible, use traditional mode
+    if (!use_virtual) {
+        // Clear any previous virtual interface tracking
+        config->virtual_interface[0] = '\0';
+
+        // Disconnect the WiFi interface if it's currently connected
+        // (A WiFi interface can't be a client and AP at the same time - single radio limitation)
+        char disconnect_cmd[512];
+        snprintf(disconnect_cmd, sizeof(disconnect_cmd),
+                 "nmcli device disconnect %s 2>/dev/null", config->wifi_interface);
+        execute_nmcli_command_silent(disconnect_cmd, output, sizeof(output));
+        // Ignore errors - interface might not be connected
+    }
 
     // Check if NetworkManager connection already exists
     char check_command[256];
@@ -272,7 +319,7 @@ wterm_result_t hotspot_stop(const char *name) {
         return WTERM_ERROR_GENERAL;
     }
 
-    // If stopping a specific hotspot, clean up NAT rules first
+    // If stopping a specific hotspot, clean up NAT rules and virtual interface first
     if (name) {
         // Find configuration to get interface and subnet info
         hotspot_config_t *config = NULL;
@@ -286,6 +333,19 @@ wterm_result_t hotspot_stop(const char *name) {
         // Clean up NAT rules before stopping hotspot (silently)
         if (config) {
             cleanup_nat_rules(config->wifi_interface, config->gateway_ip);
+
+            // Clean up virtual interface if one was created
+            if (config->virtual_interface[0] != '\0') {
+                REPORT_ERROR(false, "Cleaning up virtual interface %s",
+                           config->virtual_interface);
+                delete_virtual_interface(config->virtual_interface);
+
+                // Clear virtual interface field in config
+                config->virtual_interface[0] = '\0';
+
+                // Save updated config back to disk
+                hotspot_save_config_to_file(config);
+            }
         }
     }
 
@@ -658,6 +718,10 @@ void hotspot_get_default_config(hotspot_config_t *config) {
     config->client_isolation = false;
     config->mac_filtering = false;
     config->is_5ghz = false;
+
+    // Initialize virtual interface fields
+    config->virtual_interface[0] = '\0';  // No virtual interface by default
+    config->use_virtual_if_possible = true;  // Enable WiFi-to-WiFi sharing by default
 }
 
 // Helper function implementations
@@ -726,6 +790,8 @@ static wterm_result_t load_all_configs(void) {
             else if (strcmp(key, "client_isolation") == 0) cfg->client_isolation = (atoi(value) != 0);
             else if (strcmp(key, "mac_filtering") == 0) cfg->mac_filtering = (atoi(value) != 0);
             else if (strcmp(key, "is_5ghz") == 0) cfg->is_5ghz = (atoi(value) != 0);
+            else if (strcmp(key, "virtual_interface") == 0) safe_string_copy(cfg->virtual_interface, value, sizeof(cfg->virtual_interface));
+            else if (strcmp(key, "use_virtual_if_possible") == 0) cfg->use_virtual_if_possible = (atoi(value) != 0);
         }
 
         fclose(conf_fp);
@@ -823,6 +889,8 @@ static wterm_result_t write_config_file(const char *file_path, const hotspot_con
     fprintf(fp, "client_isolation=%d\n", config->client_isolation ? 1 : 0);
     fprintf(fp, "mac_filtering=%d\n", config->mac_filtering ? 1 : 0);
     fprintf(fp, "is_5ghz=%d\n", config->is_5ghz ? 1 : 0);
+    fprintf(fp, "virtual_interface=%s\n", config->virtual_interface);
+    fprintf(fp, "use_virtual_if_possible=%d\n", config->use_virtual_if_possible ? 1 : 0);
 
     fclose(fp);
     return WTERM_SUCCESS;
@@ -1093,16 +1161,50 @@ wterm_result_t hotspot_get_interface_list(interface_info_t *interfaces,
         if (sscanf(line, "%15s %31s %31s", device, type, state) == 3) {
             // Only include WiFi interfaces
             if (strcmp(type, "wifi") == 0) {
-                safe_string_copy(interfaces[*count].name, device, sizeof(interfaces[*count].name));
-                safe_string_copy(interfaces[*count].status, state, sizeof(interfaces[*count].status));
+                interface_info_t *iface = &interfaces[*count];
 
-                // Use iw to verify AP mode support
-                bool supports_ap = false;
-                if (iw_is_available() && iw_check_ap_mode_support(device, &supports_ap) == WTERM_SUCCESS) {
-                    interfaces[*count].supports_ap = supports_ap;
+                safe_string_copy(iface->name, device, sizeof(iface->name));
+                safe_string_copy(iface->status, state, sizeof(iface->status));
+
+                // Initialize new fields with defaults
+                iface->supports_ap = false;
+                iface->supports_concurrent = false;
+                iface->is_connected = false;
+                iface->current_channel = -1;
+
+                // Use iw to populate hardware capabilities
+                if (iw_is_available()) {
+                    // Check AP mode support
+                    bool supports_ap = false;
+                    if (iw_check_ap_mode_support(device, &supports_ap) == WTERM_SUCCESS) {
+                        iface->supports_ap = supports_ap;
+                    } else {
+                        // Fallback: assume WiFi interfaces support AP mode
+                        iface->supports_ap = true;
+                    }
+
+                    // Check concurrent mode support (client + AP simultaneously)
+                    bool supports_concurrent = false;
+                    if (iw_check_concurrent_mode_support(device, &supports_concurrent) == WTERM_SUCCESS) {
+                        iface->supports_concurrent = supports_concurrent;
+                    }
+
+                    // Check if interface is currently connected
+                    bool is_connected = false;
+                    if (iw_check_interface_connected(device, &is_connected) == WTERM_SUCCESS) {
+                        iface->is_connected = is_connected;
+
+                        // If connected, get the current channel
+                        if (is_connected) {
+                            int channel = -1;
+                            if (iw_get_connected_channel(device, &channel) == WTERM_SUCCESS) {
+                                iface->current_channel = channel;
+                            }
+                        }
+                    }
                 } else {
-                    // Fallback: assume WiFi interfaces support AP mode
-                    interfaces[*count].supports_ap = true;
+                    // iw not available - use fallback values
+                    iface->supports_ap = true;
                 }
 
                 (*count)++;
@@ -1210,4 +1312,133 @@ wterm_result_t hotspot_quick_start(const char *ssid, const char *password,
 
     hotspot_manager_cleanup();
     return WTERM_SUCCESS;
+}
+
+// Virtual Interface Management Functions
+
+wterm_result_t create_virtual_interface(const char *physical_interface,
+                                       char *virtual_interface,
+                                       size_t virtual_interface_size) {
+    if (!physical_interface || !virtual_interface || virtual_interface_size == 0) {
+        return WTERM_ERROR_INVALID_INPUT;
+    }
+
+    // Check if iw is available
+    if (!iw_is_available()) {
+        REPORT_ERROR(true, "iw command not available - cannot create virtual interface%s", "");
+        return WTERM_ERROR_GENERAL;
+    }
+
+    // Get PHY index for the physical interface
+    int phy_index;
+    wterm_result_t result = iw_get_phy_index(physical_interface, &phy_index);
+    if (result != WTERM_SUCCESS) {
+        REPORT_ERROR(true, "Failed to get PHY index for interface %s", physical_interface);
+        return result;
+    }
+
+    // Generate virtual interface name (try vwlan0, vwlan1, etc.)
+    char virt_iface[MAX_STR_INTERFACE];
+    bool found_name = false;
+
+    for (int i = 0; i < 10; i++) {
+        snprintf(virt_iface, sizeof(virt_iface), "vwlan%d", i);
+
+        // Check if this interface already exists
+        char check_cmd[256];
+        snprintf(check_cmd, sizeof(check_cmd), "ip link show %s 2>/dev/null", virt_iface);
+        FILE *fp = popen(check_cmd, "r");
+        if (!fp) {
+            continue;
+        }
+
+        char buffer[256];
+        bool exists = (fgets(buffer, sizeof(buffer), fp) != NULL);
+        pclose(fp);
+
+        if (!exists) {
+            found_name = true;
+            break;
+        }
+    }
+
+    if (!found_name) {
+        REPORT_ERROR(true, "Could not find available virtual interface name%s", "");
+        return WTERM_ERROR_GENERAL;
+    }
+
+    // Create virtual interface using iw
+    char *create_args[] = {
+        "iw", "phy",
+        NULL,  // phy name (will be set)
+        "interface", "add",
+        virt_iface,
+        "type", "__ap",
+        NULL
+    };
+
+    // Build phy name
+    char phy_name[32];
+    snprintf(phy_name, sizeof(phy_name), "phy%d", phy_index);
+    create_args[2] = phy_name;
+
+    // Execute command
+    if (safe_exec_command("iw", create_args) != 0) {
+        REPORT_ERROR(true, "Failed to create virtual interface %s", virt_iface);
+        return WTERM_ERROR_NETWORK;
+    }
+
+    // Bring up the virtual interface
+    char *up_args[] = {
+        "ip", "link", "set", virt_iface, "up",
+        NULL
+    };
+
+    if (safe_exec_command("ip", up_args) != 0) {
+        // Clean up: delete the interface we just created
+        delete_virtual_interface(virt_iface);
+        REPORT_ERROR(true, "Failed to bring up virtual interface %s", virt_iface);
+        return WTERM_ERROR_NETWORK;
+    }
+
+    // Copy virtual interface name to output
+    safe_string_copy(virtual_interface, virt_iface, virtual_interface_size);
+
+    return WTERM_SUCCESS;
+}
+
+wterm_result_t delete_virtual_interface(const char *virtual_interface) {
+    if (!virtual_interface) {
+        return WTERM_ERROR_INVALID_INPUT;
+    }
+
+    // Check if iw is available
+    if (!iw_is_available()) {
+        return WTERM_ERROR_GENERAL;
+    }
+
+    // Delete virtual interface using iw
+    char *delete_args[] = {
+        "iw", "dev", (char*)virtual_interface, "del",
+        NULL
+    };
+
+    // Execute command (ignore errors if interface doesn't exist)
+    safe_exec_command("iw", delete_args);
+
+    return WTERM_SUCCESS;
+}
+
+bool is_virtual_interface(const char *interface) {
+    if (!interface) {
+        return false;
+    }
+
+    // Virtual interfaces created by wterm start with "v" (e.g., vwlan0)
+    // This is our naming convention
+    if (interface[0] == 'v' && strncmp(interface, "vwlan", 5) == 0) {
+        return true;
+    }
+
+    return false;
 }

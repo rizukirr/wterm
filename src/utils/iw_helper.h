@@ -42,4 +42,28 @@ wterm_result_t iw_get_phy_index(const char *interface, int *phy_index);
  */
 bool iw_is_available(void);
 
+/**
+ * @brief Check if an interface supports concurrent mode (client + AP simultaneously)
+ * @param interface Interface name to check
+ * @param supports_concurrent Output: true if concurrent mode is supported
+ * @return WTERM_SUCCESS on success, error code otherwise
+ */
+wterm_result_t iw_check_concurrent_mode_support(const char *interface, bool *supports_concurrent);
+
+/**
+ * @brief Get the current channel of a connected interface
+ * @param interface Interface name (e.g., "wlan0")
+ * @param channel Output: Channel number (1-165), or -1 if not connected
+ * @return WTERM_SUCCESS on success, error code otherwise
+ */
+wterm_result_t iw_get_connected_channel(const char *interface, int *channel);
+
+/**
+ * @brief Check if an interface is currently connected to a network
+ * @param interface Interface name to check
+ * @param is_connected Output: true if connected
+ * @return WTERM_SUCCESS on success, error code otherwise
+ */
+wterm_result_t iw_check_interface_connected(const char *interface, bool *is_connected);
+
 #endif // IW_HELPER_H

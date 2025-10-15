@@ -229,26 +229,42 @@ sudo ./scripts/hotspot_nm.sh status [MyHotspot]
 - `--open` - Create open hotspot (no password)
 - `--gateway <ip/prefix>` - Gateway IP (default: 192.168.12.1/24)
 
-### Important Limitations
+### WiFi-to-WiFi Sharing Support
 
-**WiFi-to-WiFi Sharing Not Supported**
+**NEW**: wterm now supports sharing WiFi connection via hotspot on compatible hardware!
 
-Due to hardware limitations, wterm cannot share a WiFi connection through a WiFi hotspot on the same adapter:
+**How It Works:**
+- Detects hardware support for concurrent mode (client + AP simultaneously)
+- Creates a virtual WiFi interface (e.g., `vwlan0`) for the hotspot
+- Physical interface stays connected to WiFi network
+- Both interfaces operate on the same channel (hardware requirement)
+- Traffic flows: Hotspot clients → Virtual interface → NAT → Physical WiFi → Internet
 
-- **Single Radio Limitation**: Most WiFi adapters have a single radio that cannot operate in both client mode (connected to WiFi) and AP mode (hotspot) simultaneously
-- **Current Behavior**: Starting a hotspot will automatically disconnect any active WiFi connection on the same interface
-- **Supported Configuration**: Ethernet-to-WiFi sharing (wired internet connection shared via WiFi hotspot)
+**Requirements:**
+- WiFi adapter that supports concurrent mode (most modern adapters)
+- Linux kernel with `iw` support
+- Both interfaces must use the same WiFi channel
 
-**To enable WiFi-to-WiFi sharing, you would need:**
+**Automatic Behavior:**
+- Enabled by default via `use_virtual_if_possible` config flag
+- Automatically detects if your WiFi adapter supports concurrent mode
+- Automatically uses same channel as active WiFi connection
+- Falls back to traditional mode if concurrent mode unavailable
+- Virtual interfaces automatically cleaned up when hotspot stops
 
-- Two separate WiFi adapters (one for client mode, one for AP mode)
-- Manual configuration to bridge traffic between the two interfaces
+**Hardware Compatibility:**
+- **Most modern WiFi adapters** support concurrent mode (check with: `iw phy phy0 info`)
+- Adapters with "valid interface combinations" showing both managed and AP modes
+- Common chipsets: Intel WiFi 6/6E, Qualcomm Atheros, MediaTek, Realtek (most recent models)
+
+**Fallback Behavior:**
+- If concurrent mode is not supported, wterm automatically disconnects WiFi before starting hotspot
+- No user intervention required - transparent fallback to traditional mode
 
 **Other Notes:**
-
 - Requires root/sudo privileges
 - Hotspot configurations are persistent across reboots
-- NetworkManager automatically handles WiFi disconnection when starting hotspot
+- Virtual interface names: `vwlan0`, `vwlan1`, etc.
 
 ## Testing
 
